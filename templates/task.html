@@ -1,0 +1,255 @@
+<!doctype html>
+<html>
+
+<head>
+    <title>OneTask</title>
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.1/moment.min.js"></script>
+    <link rel="stylesheet" href="../static/css/style.css">
+</head>
+
+<body>
+    <h1 class="task-name">{{ formatted_tasks[currentTaskIndex] }}</h1>
+    <div id="countdown" class="countdown-box" onclick="toggleTimer()">
+    </div>
+    <div class="actions">
+        <button onclick="goToPreviousTask()">
+            << Previous
+        </button>
+        <button class="completeButton" onclick="completeTask()">Complete Task</button>
+        <button onclick="skipToNextTask()">Next >></button>
+    </div>
+    <h2 class="url"><a href="#" target="_blank">Link</a></h2>
+    
+    <script type="text/javascript">
+    // Get the remaining seconds from the app and convert it to a moment.js object
+    var currentTaskIndex = 0; // Keep track of the current task index
+    var taskUrl = {{ task_urls | tojson }}
+    var numTasks = {{ num_tasks }}; // Total number of tasks
+    var remainingSeconds = {{ remaining_seconds | tojson }};
+    var formatted_tasks = {{ formatted_tasks | tojson }};
+    var task_id = {{ task_id | tojson }};
+    var taskseries_id = {{ taskseries_id | tojson }};
+    var truelist_id = {{ truelist_id | tojson }};
+    var remainingTime = moment.duration(remainingSeconds[currentTaskIndex], 'seconds');
+    var countdownBox = document.querySelector('.countdown-box');
+    var countdownInterval;
+    var isPaused = false;
+    var overdue = false;
+    var completedTasks = [];
+    var lastUpdateTime = moment();
+
+    // Function to update the link based on task URL
+    function updateLink() {
+        var url = taskUrl[currentTaskIndex];
+        console.log('Task URL:', url);
+        console.log('currentTaskIndex: ', currentTaskIndex);
+        var linkElement = document.querySelector('.url a');
+
+        // Check if task URL is "none" or empty
+        if (!url || url.toLowerCase() === 'none') {
+            linkElement.href = '#';
+            linkElement.innerText = "";
+        } else {
+            // Check if task URL lacks http or https protocol
+            if (!url.startsWith('http://') && !url.startsWith('https://')) {
+                url = 'http://' + url; // Add http protocol
+            }
+            linkElement.href = url;
+            linkElement.innerText = "Link"; // Set inner text to the URL
+
+        }
+    }
+
+    // turn the timer on or off by clicking in the box
+    function toggleTimer() {
+        if (isPaused) {
+            resumeTimer();
+        } else {
+            pauseTimer();
+        }
+    }
+
+    function pauseTimer() {
+        clearInterval(countdownInterval);
+        countdownBox.style.backgroundColor = '#e6d7d7';
+        countdownBox.style.color = '#c2c2c2';
+        isPaused = true;
+    }
+
+    function resumeTimer() {
+        if (overdue) {
+            countdownBox.style.backgroundColor = '#df4343';
+        } else {
+            countdownBox.style.backgroundColor = '#4d4d4d';
+        }
+        countdownBox.style.color = '#f8f8f8';
+        isPaused = false;
+        countdownInterval = setInterval(updateCountdown, 1000); // Start the countdown interval
+    }
+
+    // button functions
+    function goToPreviousTask() {
+        if (currentTaskIndex > 0) {
+            currentTaskIndex--;
+            updateTaskName();
+            restoreStyles();
+            updateLink();
+        }
+    }
+
+    function skipToNextTask() {
+        if (currentTaskIndex < numTasks - 1) {
+            currentTaskIndex++;
+            updateTaskName();
+            restoreStyles();
+            updateLink();
+        }
+    }
+
+    function completeTask() {
+        // Check if the task is completed
+        if (isTaskCompleted(currentTaskIndex)) {
+            // Perform uncomplete actions (e.g., restart the timer)
+            uncompleteTask();
+        } else {
+            // Make a POST request to complete the task
+            fetch('/complete_task', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ 'truelist_id': truelist_id[currentTaskIndex],
+                    'taskseries_id': taskseries_id[currentTaskIndex],
+                    'task_id': task_id[currentTaskIndex] })
+            })
+            .then(response => {
+                console.log('task_id: ', task_id[currentTaskIndex])
+                console.log('taskseries_id: ', taskseries_id[currentTaskIndex])
+                console.log('truelist_id: ', truelist_id[currentTaskIndex])
+
+                console.log('Response from server:', response);
+                return response.json();})
+
+            .then(data => {
+                console.log('Completed Task: ', formatted_tasks[currentTaskIndex]);
+
+                // Update the completedTasks array
+                completedTasks.push(currentTaskIndex);
+
+                // Update the UI with the completion status
+                updateTaskName();
+                skipToNextTask();
+            })
+            .catch(error => {
+                console.error('Error completing task:', error);
+            });
+        }
+    }
+
+    function uncompleteTask() {
+        // Make a POST request to uncomplete the task
+        fetch('/uncomplete_task', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ 'task_id': task_id[currentTaskIndex],
+                'taskseries_id': taskseries_id[currentTaskIndex],
+                'truelist_id': truelist_id[currentTaskIndex]
+                 }),
+        })
+        .then(response => response.json())
+        .then(data => {
+            console.log('Uncompleted Task: ', formatted_tasks[currentTaskIndex]);
+
+            // Remove the task index from completedTasks array
+            completedTasks = completedTasks.filter(index => index !== currentTaskIndex);
+
+            // Update the UI with the uncompletion status
+            updateTaskName();
+        })
+        .catch(error => {
+            console.error('Error uncompleting task:', error);
+        });
+    }
+
+    function isTaskCompleted(index) {
+        // Check if the task at the given index is in the completedTasks array
+        return completedTasks.includes(index);
+    }
+
+    function updateTaskName() {
+        var taskNameElement = document.querySelector('.task-name');
+        var completeButtonElement = document.querySelector('.completeButton');
+        taskNameElement.innerHTML = formatted_tasks[currentTaskIndex];
+
+        // Check if the task is completed and apply the completed class
+        if (isTaskCompleted(currentTaskIndex)) {
+            taskNameElement.classList.add('completed');
+            completeButtonElement.innerHTML = 'Uncomplete Task';
+
+            // Stop the timer if the task is completed
+            pauseTimer();
+        } else {
+            taskNameElement.classList.remove('completed');
+            completeButtonElement.innerHTML = 'Complete Task';
+
+            // Resume the timer if the task is not completed
+            resumeTimer();
+        }
+
+        // Update the remaining time for the new task
+        remainingTime = moment.duration(remainingSeconds[currentTaskIndex], 'seconds');
+        updateCountdown();
+    }
+
+    // restore the default styles when a button is clicked.
+    function restoreStyles() {
+        countdownBox.style.backgroundColor = 'rgb(153, 149, 149)';
+        document.body.style.backgroundColor = '#363636';
+        overdue = false;
+    }
+
+    // Count down from the time estimate until 0 and then starting counting up from the time estimate
+function updateCountdown() {
+    var now = moment();
+    var elapsedTime = moment.duration(now.diff(lastUpdateTime)).asSeconds();
+    lastUpdateTime = now;
+
+    if (remainingTime > 0 && !isPaused) {
+        remainingTime.subtract(elapsedTime, 'seconds');
+    }
+
+    if (remainingTime > 59000) {
+        var formattedTime = remainingTime.minutes() + " mins";
+    } else if (remainingTime <= 59000 && remainingTime > 0) {
+        var formattedTime = remainingTime.seconds() + " seconds";
+    } else if (remainingTime <= 10) {
+        remainingTime = moment.duration(remainingSeconds[currentTaskIndex], 'seconds');
+        formattedTime = "Overdue";
+        overdue = true;
+        countdownBox.style.backgroundColor = 'rgb(153, 149, 149)';
+        document.body.style.backgroundColor = '#461818';
+    }
+
+    // Update the countdown element
+    document.getElementById('countdown').innerHTML = formattedTime;
+
+    // Subtract or add one second from the remaining time if not paused
+    if (isPaused) {
+        clearInterval(countdownInterval);
+    } else if (overdue) {
+        remainingTime.add(1, 'second');
+    }
+    lastUpdateTime = moment();
+    }
+
+    // Start the countdown
+    updateCountdown();
+    updateLink();
+    // Schedule the next update in 1 second
+    countdownInterval = setInterval(updateCountdown, 1000); 
+    </script>
+</body>
+</html>
