@@ -295,6 +295,48 @@ def complete_task():
         print(f"DEBUG: {error_msg}")
         return jsonify({'error': error_msg, 'status': 'error'}), 500
 
+@app.route('/uncomplete_task', methods=['POST'])
+def uncomplete_task():
+    """Uncomplete a task using TaskWarrior"""
+    try:
+        # Get task ID from request (UUID)
+        task_id = request.json.get('task_id')
+        
+        if not task_id:
+            return jsonify({'error': 'No task ID provided', 'status': 'error'}), 400
+        
+        print(f"DEBUG: Uncompleting task {task_id}")
+        
+        # TaskWarrior 3.x doesn't have a direct uncomplete command
+        # We need to modify the task to set status back to pending
+        result = run_task_command([str(task_id), 'modify', 'status:pending'])
+        
+        if result.returncode != 0:
+            error_msg = f"TaskWarrior uncomplete failed: {result.stderr}"
+            print(f"DEBUG: {error_msg}")
+            return jsonify({'error': error_msg, 'status': 'error'}), 500
+        
+        print(f"DEBUG: Task {task_id} uncompleted successfully")
+        print(f"DEBUG: TaskWarrior output: {result.stdout}")
+        
+        uncompleted_task_info = {
+            'task_id': task_id,
+            'status': 'uncompleted',
+            'message': 'Task successfully marked as incomplete',
+            'taskwarrior_output': result.stdout.strip()
+        }
+        
+        return jsonify(uncompleted_task_info)
+        
+    except TimeoutError as e:
+        error_msg = f"TaskWarrior timeout: {str(e)}"
+        print(f"DEBUG: {error_msg}")
+        return jsonify({'error': error_msg, 'status': 'timeout'}), 408
+    except Exception as e:
+        error_msg = f"Error uncompleting task: {str(e)}"
+        print(f"DEBUG: {error_msg}")
+        return jsonify({'error': error_msg, 'status': 'error'}), 500
+
 @app.route('/capture', methods=['POST'])
 def capture_task():
     """Capture a new task using TaskWarrior native syntax"""
