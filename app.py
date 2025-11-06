@@ -24,89 +24,22 @@ def run_task_command(args, timeout=30):
 
 def get_tasks_from_report(report_name='next'):
     """Get tasks from specified TaskWarrior report"""
-    from datetime import datetime
-    
     try:
-        # Get all tasks and filter them ourselves
-        # TaskWarrior 3.x export doesn't accept status filters directly
-        result = run_task_command(['export'])
+        # Use TaskWarrior's export with report parameter - preserves filtering and ordering
+        result = run_task_command(['export', report_name])
         
         if result.returncode != 0:
-            raise Exception(f"TaskWarrior export failed: {result.stderr}")
+            raise Exception(f"TaskWarrior export {report_name} failed: {result.stderr}")
         
         if not result.stdout.strip():
             return []
         
-        all_tasks = json.loads(result.stdout)
-        
-        # Filter to only pending tasks first
-        pending_tasks = [task for task in all_tasks if task.get('status') == 'pending']
-        
-        # Now filter based on the report type
-        if report_name == 'focus':
-            # Apply focus filter manually: ((project:Routine or project: ) and (tag:anyday or tag:weekday or tag:weekend or tag:someday) and (due: or due.by:today) and status:pending)
-            filtered_tasks = []
-            for task in pending_tasks:
-                project = task.get('project')  # Can be None, empty string, or actual project
-                tags = task.get('tags', [])
-                due = task.get('due', '')
-                
-                # Check project condition: (project:Routine or project: )
-                project_match = (project == 'Routine' or project is None or project == '')
-                
-                # Check tag condition: (tag:anyday or tag:weekday or tag:weekend or tag:someday)
-                tag_match = any(tag in ['anyday', 'weekday', 'weekend', 'someday'] for tag in tags)
-                
-                # Check due condition: (due: or due.by:today) 
-                # Empty due means no due date, otherwise check if due today or earlier
-                from datetime import datetime
-                today_str = datetime.now().strftime('%Y%m%dT235959Z')
-                due_match = (due == '' or due is None or due <= today_str)
-                
-                if project_match and tag_match and due_match:
-                    filtered_tasks.append(task)
-            
-            tasks = filtered_tasks
-        elif report_name == 'unslotted':
-            # Apply unslotted filter: status:pending and (estimate: or location: or (-weekday and -weekend and -anyday and -someday))
-            filtered_tasks = []
-            for task in pending_tasks:
-                estimate = task.get('estimate', '')
-                location = task.get('location', '')
-                tags = task.get('tags', [])
-                
-                # Check if estimate or location is missing
-                missing_metadata = (estimate == '' or location == '')
-                
-                # Check if missing time tags
-                missing_time_tags = not any(tag in ['weekday', 'weekend', 'anyday', 'someday'] for tag in tags)
-                
-                if missing_metadata or missing_time_tags:
-                    filtered_tasks.append(task)
-            
-            tasks = filtered_tasks
-        elif report_name in ['next', 'ready']:
-            # Filter for ready tasks (not blocked, not waiting, not scheduled in future)
-            ready_tasks = []
-            for task in pending_tasks:
-                # Task is ready if it's not blocked, not waiting, and not scheduled for future
-                is_blocked = task.get('depends') is not None
-                is_waiting = task.get('wait') is not None and task.get('wait') != ''
-                is_scheduled_future = task.get('scheduled') is not None and task.get('scheduled') > datetime.now().strftime('%Y%m%dT%H%M%SZ')
-                
-                if not is_blocked and not is_waiting and not is_scheduled_future:
-                    ready_tasks.append(task)
-            
-            tasks = ready_tasks
-        else:
-            # For unknown reports, return all pending tasks
-            tasks = pending_tasks
-        
-        # Sort by urgency (descending) to match TaskWarrior's default behavior
-        tasks.sort(key=lambda x: x.get('urgency', 0), reverse=True)
-        return tasks
+        return json.loads(result.stdout)
     except json.JSONDecodeError as e:
         raise Exception(f"Failed to parse TaskWarrior JSON: {str(e)}")
+    except Exception as e:
+        print(f"Error getting tasks from {report_name}: {e}")
+        return []
 
 def format_task_for_display(task):
     """Convert TaskWarrior task to Milkbox-compatible format"""

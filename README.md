@@ -5,11 +5,11 @@ A Pomodoro-style task management web application that integrates with TaskWarrio
 ## Features
 
 - **Timer Interface**: Visual countdown timer with click-to-pause functionality
-- **TaskWarrior Integration**: Seamlessly works with your existing TaskWarrior setup
+- **TaskWarrior Integration**: Uses TaskWarrior's native report system, respecting all .taskrc configurations
 - **Task Navigation**: Navigate through tasks with Previous/Next buttons
 - **Visual Indicators**: Red background for overdue tasks
 - **Task Completion**: Mark tasks complete/incomplete directly from the interface
-- **Priority Sorting**: Tasks sorted by priority, time estimate, then name
+- **Report Support**: Works with any configured TaskWarrior report (focus, next, ready, etc.)
 
 ## Requirements
 
@@ -52,12 +52,14 @@ A Pomodoro-style task management web application that integrates with TaskWarrio
    Open your browser to: http://localhost:5000/
 
    **Optional: Use custom TaskWarrior reports**
-   You can specify a custom TaskWarrior report using the `report` query parameter:
+   You can specify any configured TaskWarrior report using the `report` query parameter:
    ```
-   http://localhost:5000/?report=your_report_name
+   http://localhost:5000/?report=focus
+   http://localhost:5000/?report=next
+   http://localhost:5000/?report=ready
    ```
    
-   This allows you to use any configured TaskWarrior report (e.g., `next`, `overdue`, `today`) to filter which tasks appear in the interface.
+   OneTask uses TaskWarrior's native `task export <report>` command, so all your .taskrc report configurations (filters, sorting, columns) are automatically respected.
 
 3. **Using the interface**
    - Tasks are automatically loaded from TaskWarrior
