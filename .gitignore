@@ -62,3 +62,11 @@ Dockerfile.validation
 
 # Zip script
 zip_code.py
+
+# Secrets and API tokens
+secrets.txt
+auth_token.txt
+*.key
+*.pem
+.env
+.env.*
