@@ -83,6 +83,72 @@ OneTask parses time estimates in multiple formats:
 - Human readable: `1h 30m`, `45m`, `2h`
 - Numeric with units: `90m`, `1.5h`, `30s`
 
+## API Endpoints
+
+OneTask provides the following HTTP endpoints:
+
+### GET /
+Main application interface. Loads and displays tasks from the specified TaskWarrior report.
+
+**Query Parameters:**
+- `report` (optional): TaskWarrior report name (default: "next")
+  - Examples: `/?report=focus`, `/?report=ready`, `/?report=someday`
+
+### POST /complete_task
+Marks a task as complete in TaskWarrior.
+
+**Request Body:**
+- `task_id`: TaskWarrior task ID to mark as complete
+
+**Response:**
+```json
+{"status": "success", "message": "Task marked as complete"}
+```
+
+### POST /uncomplete_task
+Marks a completed task as incomplete (reopens it).
+
+**Request Body:**
+- `task_id`: TaskWarrior task ID to mark as incomplete
+
+**Response:**
+```json
+{"status": "success", "message": "Task marked as incomplete"}
+```
+
+### POST /capture
+Adds a new task to TaskWarrior using native TaskWarrior syntax.
+
+**Request Body:**
+- `task`: Task description with optional TaskWarrior attributes
+  - Examples: `"Fix bug in login system"`, `"Review PR priority:H project:web"`
+
+**Response:**
+```json
+{"status": "success", "message": "Task captured successfully"}
+```
+
+## Deployment
+
+### Development Deployment
+```bash
+# Basic development server
+python app.py
+```
+
+### Production Considerations
+- Use a production WSGI server (e.g., Gunicorn, uWSGI)
+- Configure reverse proxy (nginx/Apache) for static files
+- Set up proper TaskWarrior permissions for web user
+- Consider containerization for consistent environments
+
+### Future Docker Support
+Docker containerization is planned for simplified deployment. This will include:
+- Multi-stage builds for optimized image size
+- TaskWarrior configuration management
+- Environment-based configuration
+- Health check endpoints
+
 ## Development
 
 See `CLAUDE.md` for detailed development guidance and architecture information.
