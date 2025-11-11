@@ -213,36 +213,47 @@
 
     // Count down from the time estimate until 0 and then starting counting up from the time estimate
 function updateCountdown() {
+    if (isPaused) {
+        return;
+    }
+
     var now = moment();
     var elapsedTime = moment.duration(now.diff(lastUpdateTime)).asSeconds();
     lastUpdateTime = now;
 
-    if (remainingTime > 0 && !isPaused) {
+    if (!overdue && remainingTime > 0) {
+        // Counting down
         remainingTime.subtract(elapsedTime, 'seconds');
-    }
-
-    if (remainingTime > 59000) {
-        var formattedTime = remainingTime.minutes() + " mins";
-    } else if (remainingTime <= 59000 && remainingTime > 0) {
-        var formattedTime = remainingTime.seconds() + " seconds";
-    } else if (remainingTime <= 10) {
-        remainingTime = moment.duration(remainingSeconds[currentTaskIndex], 'seconds');
-        formattedTime = "Overdue";
-        overdue = true;
-        countdownBox.style.backgroundColor = 'rgb(153, 149, 149)';
-        document.body.style.backgroundColor = '#461818';
+        
+        if (remainingTime.asMinutes() >= 1) {
+            var formattedTime = Math.ceil(remainingTime.asMinutes()) + " mins";
+        } else if (remainingTime > 0) {
+            var formattedTime = Math.ceil(remainingTime.asSeconds()) + " seconds";
+        } else {
+            // Timer just hit zero - switch to overdue mode
+            remainingTime = moment.duration(remainingSeconds[currentTaskIndex], 'seconds');
+            overdue = true;
+            countdownBox.style.backgroundColor = '#df4343';
+            document.body.style.backgroundColor = '#461818';
+            formattedTime = Math.ceil(remainingTime.asMinutes()) + " mins";
+        }
+    } else {
+        // Counting up (overdue time) - start from original estimate
+        if (!overdue) {
+            overdue = true;
+            remainingTime = moment.duration(remainingSeconds[currentTaskIndex], 'seconds');
+            countdownBox.style.backgroundColor = '#995151';
+            document.body.style.backgroundColor = '#461818';
+        }
+        
+        remainingTime.add(elapsedTime, 'seconds');
+        
+        // Always show only minutes when overdue (no seconds)
+        formattedTime = Math.ceil(remainingTime.asMinutes()) + " mins";
     }
 
     // Update the countdown element
     document.getElementById('countdown').innerHTML = formattedTime;
-
-    // Subtract or add one second from the remaining time if not paused
-    if (isPaused) {
-        clearInterval(countdownInterval);
-    } else if (overdue) {
-        remainingTime.add(1, 'second');
-    }
-    lastUpdateTime = moment();
     }
 
     // Start the countdown
