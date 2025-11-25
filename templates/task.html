@@ -85,6 +85,7 @@
         }
         countdownBox.style.color = '#f8f8f8';
         isPaused = false;
+        lastUpdateTime = moment(); // Reset the update time when resuming
         countdownInterval = setInterval(updateCountdown, 1000); // Start the countdown interval
     }
 
