@@ -10,6 +10,9 @@
 
 <body>
     <h1 class="task-name">{{ formatted_tasks[currentTaskIndex] }}</h1>
+    <div class="task-id-display" onclick="copyTaskId()">
+        ID: <span id="current-task-id">{{ short_ids[currentTaskIndex] }}</span>
+    </div>
     <div id="countdown" class="countdown-box" onclick="toggleTimer()">
     </div>
     <div class="actions">
@@ -31,6 +34,7 @@
     var task_id = {{ task_id | tojson }};
     var taskseries_id = {{ taskseries_id | tojson }};
     var truelist_id = {{ truelist_id | tojson }};
+    var short_ids = {{ short_ids | tojson }};
     var remainingTime = moment.duration(remainingSeconds[currentTaskIndex], 'seconds');
     var countdownBox = document.querySelector('.countdown-box');
     var countdownInterval;
@@ -59,6 +63,29 @@
             linkElement.innerText = "Link"; // Set inner text to the URL
 
         }
+    }
+
+    // Function to update the task ID display
+    function updateTaskId() {
+        var taskIdElement = document.getElementById('current-task-id');
+        taskIdElement.textContent = short_ids[currentTaskIndex];
+    }
+
+    // Function to copy task ID to clipboard
+    function copyTaskId() {
+        var taskId = short_ids[currentTaskIndex];
+        navigator.clipboard.writeText(taskId).then(function() {
+            console.log('Task ID copied to clipboard: ' + taskId);
+            // Visual feedback
+            var taskIdDisplay = document.querySelector('.task-id-display');
+            var originalText = taskIdDisplay.innerHTML;
+            taskIdDisplay.innerHTML = 'ID: <span>Copied!</span>';
+            setTimeout(function() {
+                taskIdDisplay.innerHTML = originalText;
+            }, 1000);
+        }).catch(function(err) {
+            console.error('Failed to copy task ID: ', err);
+        });
     }
 
     // turn the timer on or off by clicking in the box
@@ -96,6 +123,7 @@
             updateTaskName();
             restoreStyles();
             updateLink();
+            updateTaskId();
         }
     }
 
@@ -105,6 +133,7 @@
             updateTaskName();
             restoreStyles();
             updateLink();
+            updateTaskId();
         }
     }
 
@@ -260,6 +289,7 @@ function updateCountdown() {
     // Start the countdown
     updateCountdown();
     updateLink();
+    updateTaskId();
     // Schedule the next update in 1 second
     countdownInterval = setInterval(updateCountdown, 1000); 
     </script>

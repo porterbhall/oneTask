@@ -55,6 +55,10 @@ def format_task_for_display(task):
     estimate = task.get('estimate', '')
     total_seconds = convert_taskwarrior_estimate_to_seconds(estimate)
     
+    # Create short task identifier from UUID (first 8 characters)
+    uuid = task.get('uuid', '')
+    short_id = uuid[:8] if uuid else 'unknown'
+    
     # Format the task for display
     formatted_task = {
         "name": task.get('description', 'No description'),
@@ -63,7 +67,8 @@ def format_task_for_display(task):
         "task_id": task.get('uuid', ''),  # Use UUID as primary identifier
         "uuid": task.get('uuid', ''),
         "total_seconds": total_seconds,
-        "task_url": task.get('url', 'none')
+        "task_url": task.get('url', 'none'),
+        "short_id": short_id
     }
     
     # Format display name
@@ -122,7 +127,7 @@ def show_list():
         print(f"DEBUG: Got {len(raw_tasks)} tasks from TaskWarrior")
         
         if not raw_tasks:
-            tasks = [{'name': 'No tasks to display', 'priority': 2, 'total_seconds': 0, 'formatted_task': 'No tasks to display', 'task_id': '', 'uuid': '', 'task_url': 'none'}]
+            tasks = [{'name': 'No tasks to display', 'priority': 2, 'total_seconds': 0, 'formatted_task': 'No tasks to display', 'task_id': '', 'uuid': '', 'task_url': 'none', 'short_id': ''}]
         else:
             # Convert TaskWarrior tasks to Milkbox format
             # Note: raw_tasks are already sorted by urgency from get_tasks_from_report()
@@ -136,6 +141,7 @@ def show_list():
         formatted_tasks = [task["formatted_task"] for task in tasks]
         task_urls = [task["task_url"] for task in tasks]
         remaining_seconds = [task["total_seconds"] for task in tasks]
+        short_ids = [task["short_id"] for task in tasks]
         num_tasks = len(tasks)
         
         return render_template('task.html', 
@@ -146,6 +152,7 @@ def show_list():
                              task_id=task_ids,
                              taskseries_id=uuids,  # Use UUID as taskseries_id for compatibility
                              truelist_id=uuids,    # Use UUID as truelist_id for compatibility
+                             short_ids=short_ids,
                              currentTaskIndex=0)
         
     except TimeoutError as e:

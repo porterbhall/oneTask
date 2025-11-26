@@ -12,8 +12,29 @@ body {
 .task-name {
     font-size: 48px;
     text-align: center;
-    margin-bottom: 20px;
+    margin-bottom: 10px;
     color: #e6d7d7;
+}
+
+.task-id-display {
+    text-align: center;
+    margin-bottom: 20px;
+    font-size: 16px;
+    color: #888;
+    cursor: pointer;
+    padding: 5px 10px;
+    border-radius: 3px;
+    transition: all 0.2s ease;
+}
+
+.task-id-display:hover {
+    background-color: #4d4d4d;
+    color: #c2c2c2;
+}
+
+.task-id-display span {
+    font-family: 'Courier New', monospace;
+    font-weight: bold;
 }
 
 .countdown-box {
