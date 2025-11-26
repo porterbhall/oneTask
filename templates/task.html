@@ -9,6 +9,7 @@
 </head>
 
 <body>
+    <a href="/stats{{ '?report=' + request.args.get('report', 'next') }}" class="stats-link">Stats</a>
     <h1 class="task-name">{{ formatted_tasks[currentTaskIndex] }}</h1>
     <div class="task-id-display" onclick="copyTaskId()">
         ID: <span id="current-task-id">{{ short_ids[currentTaskIndex] }}</span>

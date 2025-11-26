@@ -1,0 +1,26 @@
+<!doctype html>
+<html>
+
+<head>
+    <title>OneTask - Stats</title>
+    <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
+    <link rel="stylesheet" href="../static/css/style.css">
+</head>
+
+<body>
+    <div class="stats-container">
+        <h1>{{ report_name }} Report Stats</h1>
+        
+        <div class="stats-content">
+            <p>Pending tasks in the {{ report_name.lower() }} list: {{ pending_count }}</p>
+            <p>Tasks completed today: {{ completed_today }}</p>
+            <p>Total time estimate for pending tasks: {{ time_estimate }}</p>
+        </div>
+        
+        <div class="stats-actions">
+            <a href="/?report={{ current_report }}">← Back to OneTask</a>
+        </div>
+    </div>
+</body>
+
+</html>

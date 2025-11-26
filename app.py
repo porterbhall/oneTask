@@ -316,6 +316,75 @@ def capture_task():
         print(f"DEBUG: {error_msg}")
         return jsonify({'error': error_msg, 'status': 'failed'}), 500
 
+@app.route('/stats')
+def show_stats():
+    """Display statistics for the current report"""
+    # Get report name from query string (default to 'next')
+    report_name = request.args.get('report', default='next')
+    print(f"DEBUG: Showing stats for report: {report_name}")
+    
+    try:
+        # Get current pending tasks from the report
+        pending_tasks = get_tasks_from_report(report_name)
+        pending_count = len(pending_tasks)
+        
+        # Calculate sum of time estimates for pending tasks
+        total_estimate_seconds = sum(
+            convert_taskwarrior_estimate_to_seconds(task.get('estimate', ''))
+            for task in pending_tasks
+        )
+        
+        # Get tasks completed today
+        completed_today = 0
+        try:
+            # Query for tasks completed today
+            completed_result = run_task_command(['completed', 'end:today'])
+            
+            if completed_result.returncode == 0 and completed_result.stdout.strip():
+                # Count actual task entries by looking for lines that start with " - " (completed task indicator)
+                output_lines = completed_result.stdout.strip().split('\n')
+                task_lines = [line for line in output_lines if line.strip().startswith('- ')]
+                completed_today = len(task_lines)
+        except Exception as e:
+            print(f"DEBUG: Error getting completed tasks: {e}")
+            completed_today = 0
+        
+        # Convert total seconds to human readable format
+        hours = total_estimate_seconds // 3600
+        minutes = (total_estimate_seconds % 3600) // 60
+        
+        if hours > 0:
+            time_estimate_display = f"{hours}h {minutes}m"
+        elif minutes > 0:
+            time_estimate_display = f"{minutes}m"
+        else:
+            time_estimate_display = "0m"
+        
+        # Capitalize first letter of report name for display
+        report_display = report_name.capitalize()
+        
+        return render_template('stats.html',
+                             report_name=report_display,
+                             pending_count=pending_count,
+                             completed_today=completed_today,
+                             time_estimate=time_estimate_display,
+                             current_report=report_name)
+        
+    except Exception as e:
+        error_msg = f"Error generating stats: {str(e)}"
+        print(f"DEBUG: {error_msg}")
+        return f"""
+        <html>
+        <head><title>OneTask - Stats Error</title></head>
+        <body style="font-family: Arial, sans-serif; margin: 40px; color: #333;">
+            <h1 style="color: #d32f2f;">Stats Error</h1>
+            <p>Unable to generate statistics.</p>
+            <p><a href="/">← Go back to OneTask</a></p>
+            <p style="color: #666; font-size: 12px;">Error: {error_msg}</p>
+        </body>
+        </html>
+        """, 500
+
 @app.errorhandler(500)
 def internal_error(error):
     return f"""
