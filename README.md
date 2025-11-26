@@ -7,6 +7,8 @@ A Pomodoro-style task management web application that integrates with TaskWarrio
 - **Timer Interface**: Visual countdown timer with click-to-pause functionality
 - **TaskWarrior Integration**: Uses TaskWarrior's native report system, respecting all .taskrc configurations
 - **Task Navigation**: Navigate through tasks with Previous/Next buttons
+- **Task Identifiers**: Clickable 8-character task IDs for easy terminal lookup
+- **Statistics Page**: Report-specific stats including pending tasks, completed today, and time estimates
 - **Visual Indicators**: Red background for overdue tasks
 - **Task Completion**: Mark tasks complete/incomplete directly from the interface
 - **Report Support**: Works with any configured TaskWarrior report (focus, next, ready, etc.)
@@ -65,6 +67,8 @@ A Pomodoro-style task management web application that integrates with TaskWarrio
    - Tasks are automatically loaded from TaskWarrior
    - Click the timer to pause/resume
    - Use Previous/Next buttons to navigate tasks
+   - Click the task ID to copy it to clipboard for terminal use
+   - Click "Stats" (upper left) to view report statistics
    - Click "Complete Task" to mark tasks as done
    - Click "Uncomplete Task" to reopen completed tasks
 
@@ -127,6 +131,19 @@ Adds a new task to TaskWarrior using native TaskWarrior syntax.
 ```json
 {"status": "success", "message": "Task captured successfully"}
 ```
+
+### GET /stats
+Displays statistics for the current TaskWarrior report.
+
+**Query Parameters:**
+- `report` (optional): TaskWarrior report name (default: "next")
+  - Examples: `/stats?report=focus`, `/stats?report=ready`
+
+**Features:**
+- Shows pending task count for the specified report
+- Displays tasks completed today
+- Calculates total time estimates for pending tasks
+- Minimal text layout with navigation back to main interface
 
 ## Deployment
 
