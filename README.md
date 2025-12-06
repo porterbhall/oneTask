@@ -1,5 +1,7 @@
 # OneTask
 
+> v1.4.0
+
 A Pomodoro-style task management web application that integrates with TaskWarrior to provide a focused, timer-based interface for completing tasks.
 
 ## Features
