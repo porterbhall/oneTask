@@ -172,17 +172,62 @@ Docker containerization is planned for simplified deployment. This will include:
 
 See `CLAUDE.md` for detailed development guidance and architecture information.
 
+## Security
+
+OneTask implements comprehensive security measures:
+
+- **Automated Security Scanning**: Dependabot vulnerability detection and secret scanning
+- **Manual Security Reviews**: Pre-release security validation checklist
+- **Input Validation**: Protection against injection attacks and malformed input
+- **Error Handling**: Secure error pages without information disclosure
+
+For security issues, see `SECURITY.md` for our vulnerability reporting process.
+
+For detailed security procedures, see:
+- `security-checklist.md` - Manual security validation
+- `security-scan-review.md` - Automated scan review process
+- `security-remediation.md` - Incident response procedures
+
+## Backup and Data Protection
+
+OneTask integrates with a comprehensive TaskWarrior backup system:
+
+- **Multi-tier Backups**: Local, weekly, monthly, and annual backup retention
+- **Automatic Scheduling**: Cron-based automated backup execution
+- **Remote Storage**: NAS-based redundancy for disaster recovery
+- **Restore Testing**: Documented procedures for backup validation
+
+**Backup Documentation**: See `~/.task/backups/README.md` for complete backup system documentation, including:
+- System architecture and data flow
+- Step-by-step restore procedures for each backup tier
+- Troubleshooting and maintenance procedures
+- Emergency recovery contacts and procedures
+
+**Recovery Time Objectives (RTO)**:
+- Local backups: < 2 minutes
+- Weekly backups: < 10 minutes  
+- Monthly backups: < 15 minutes
+
 ## Troubleshooting
 
 ### TaskWarrior Issues
 - Ensure TaskWarrior is installed: `task --version`
 - Check task data: `task list`
 - Verify export functionality: `task export`
+- For backup-related issues: See `~/.task/backups/README.md`
 
 ### Application Issues
 - Check Python version: `python --version`
 - Verify dependencies: `pip list`
 - Check Flask logs for error messages
+- For security issues: See `SECURITY.md`
+
+### Data Recovery
+If you experience data loss:
+1. **Stop using TaskWarrior immediately** to prevent overwriting
+2. **Check local backups**: `ls ~/.task/backups/local/`
+3. **Follow restore procedures**: See `~/.task/backups/README.md`
+4. **Test restore thoroughly** before resuming normal operations
 
 ## License
 
