@@ -1,0 +1,15 @@
+# Test requirements file with intentionally vulnerable packages
+# DO NOT USE IN PRODUCTION - FOR TESTING SECURITY SCANNING ONLY
+
+# Known vulnerable version of requests (CVE-2018-18074)
+requests==2.19.1
+
+# Known vulnerable version of Pillow (multiple CVEs)
+Pillow==5.0.0
+
+# Known vulnerable version of PyYAML (CVE-2017-18342)
+PyYAML==3.12
+
+# Current production requirements (secure)
+Flask==3.1.1
+moment==0.12.1
