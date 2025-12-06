@@ -30,6 +30,20 @@ Increment when making backwards-compatible bug fixes:
 - **Error Handling Improvements**: Better error messages or timeout handling
 - **CSS/UI Fixes**: Visual fixes that don't add new functionality
 
+### Security Release Guidelines
+
+**Critical Security Releases (Emergency):**
+- **Timeline**: Release within 24-48 hours of discovery
+- **Version**: Increment PATCH version immediately
+- **Process**: Follow expedited release process with minimal testing
+- **Communication**: Coordinate responsible disclosure if applicable
+
+**High/Medium Security Releases:**
+- **Timeline**: Include in next scheduled release or dedicated security release
+- **Version**: PATCH increment for fixes, MINOR for security features
+- **Process**: Complete full validation checklist
+- **Dependency**: Resolve before any other releases
+
 ## Release-Ready State Criteria
 
 A release is considered ready when ALL of the following criteria are met:
@@ -39,6 +53,8 @@ A release is considered ready when ALL of the following criteria are met:
 - [ ] No critical security vulnerabilities in dependencies
 - [ ] Code follows project conventions and style guidelines
 - [ ] No TODO comments remain for release-blocking items
+- [ ] Security validation checklist completed (`security-checklist.md`)
+- [ ] GitHub security scanning alerts resolved
 
 ### Functionality
 - [ ] Flask application starts successfully (`python app.py`)
@@ -51,6 +67,8 @@ A release is considered ready when ALL of the following criteria are met:
 - [ ] CLAUDE.md reflects any new functionality or changes
 - [ ] README.md is updated with new features or requirements
 - [ ] Version-specific release notes are prepared
+- [ ] Security documentation updated if applicable
+- [ ] Backup system compatibility verified
 
 ### Environment
 - [ ] Works with specified Python version (3.12+)
@@ -74,6 +92,13 @@ python test_completion.py
 # Check dependencies for security issues
 pip check
 pip list --outdated
+
+# Run security validation
+# Complete security-checklist.md manually
+
+# Check GitHub security alerts
+gh api repos/porterbhall/oneTask/dependabot/alerts
+gh api repos/porterbhall/oneTask/secret-scanning/alerts
 ```
 
 ### 2. TaskWarrior Integration Testing
@@ -85,6 +110,10 @@ task list
 # Test export functionality
 task export next
 task export ready
+
+# Test backup system integration
+# Verify backup processes don't interfere with OneTask
+ls ~/.task/backups/local/ | tail -5
 ```
 
 ### 3. Version Validation
@@ -103,6 +132,25 @@ python app.py
 deactivate
 rm -rf test_env
 ```
+
+### 5. Security Validation
+```bash
+# Review and complete security checklist
+open security-checklist.md
+
+# Check for security alerts
+gh api repos/porterbhall/oneTask/dependabot/alerts --jq '.[] | select(.state=="open")'
+gh api repos/porterbhall/oneTask/secret-scanning/alerts --jq '.[] | select(.state=="open")'
+
+# Test backup restore (for major releases)
+# Follow procedures in ~/.task/backups/README.md for quarterly testing
+```
+
+**Security Release Requirements:**
+- [ ] All Critical and High severity security alerts resolved
+- [ ] Security checklist completed and signed off
+- [ ] No exposed secrets detected
+- [ ] Backup system compatibility verified
 
 ## Git Tagging Process
 
@@ -218,6 +266,8 @@ git push origin v1.2.4
 - Update release notes with known issues
 - Notify users via appropriate channels
 - Document lessons learned for future releases
+- **For Security Issues**: Follow responsible disclosure timeline
+- **Update Security Documentation**: Reflect any security rollback procedures
 
 ### If Rollback to Previous Version Needed
 ```bash
@@ -250,4 +300,6 @@ git push origin v1.2.5
 - [ ] Release announcement (if applicable)
 - [ ] Monitor for issues in first 24 hours
 - [ ] Update any external documentation mentioning version numbers
+- [ ] Monitor GitHub security alerts for new issues
+- [ ] Verify backup system continues functioning with new version
 - [ ] Plan next release cycle
