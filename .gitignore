@@ -70,3 +70,6 @@ auth_token.txt
 *.pem
 .env
 .env.*
+
+# Jira project management files
+jira/
