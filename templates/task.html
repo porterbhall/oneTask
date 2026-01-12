@@ -2,7 +2,7 @@
 <html>
 
 <head>
-    <title>OneTask</title>
+    <title>{% if report_name and report_name != 'next' %}OneTask: {{ report_name.capitalize() }}{% else %}OneTask{% endif %}</title>
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.1/moment.min.js"></script>
     <link rel="stylesheet" href="../static/css/style.css">
@@ -57,8 +57,9 @@
             linkElement.innerText = "";
         } else {
             // Check if task URL lacks http or https protocol
-            if (!url.startsWith('http://') && !url.startsWith('https://')) {
-                url = 'http://' + url; // Add http protocol
+            // But preserve app links (custom protocols like joplin://, obsidian://, etc.)
+            if (!url.startsWith('http://') && !url.startsWith('https://') && !url.includes('://')) {
+                url = 'http://' + url; // Add http protocol only for domain-like URLs
             }
             linkElement.href = url;
             linkElement.innerText = "Link"; // Set inner text to the URL
@@ -286,6 +287,29 @@ function updateCountdown() {
     // Update the countdown element
     document.getElementById('countdown').innerHTML = formattedTime;
     }
+
+    // Keyboard navigation
+    document.addEventListener('keydown', function(event) {
+        // Prevent default behavior for space bar to avoid page scrolling
+        if (event.code === 'Space') {
+            event.preventDefault();
+        }
+        
+        switch(event.key.toLowerCase()) {
+            case 'p':
+                goToPreviousTask();
+                break;
+            case 'c':
+                completeTask();
+                break;
+            case 'n':
+                skipToNextTask();
+                break;
+            case ' ':
+                toggleTimer();
+                break;
+        }
+    });
 
     // Start the countdown
     updateCountdown();

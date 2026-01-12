@@ -153,7 +153,8 @@ def show_list():
                              taskseries_id=uuids,  # Use UUID as taskseries_id for compatibility
                              truelist_id=uuids,    # Use UUID as truelist_id for compatibility
                              short_ids=short_ids,
-                             currentTaskIndex=0)
+                             currentTaskIndex=0,
+                             report_name=report_name)
         
     except TimeoutError as e:
         error_msg = f"TaskWarrior timeout: {str(e)}"
