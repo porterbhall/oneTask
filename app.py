@@ -68,7 +68,10 @@ def format_task_for_display(task):
         "uuid": task.get('uuid', ''),
         "total_seconds": total_seconds,
         "task_url": task.get('url', 'none'),
-        "short_id": short_id
+        "short_id": short_id,
+        "annotations": task.get('annotations', []),
+        "due_date": task.get('due', None),
+        "tags": task.get('tags', [])
     }
     
     # Format display name
@@ -142,6 +145,9 @@ def show_list():
         task_urls = [task["task_url"] for task in tasks]
         remaining_seconds = [task["total_seconds"] for task in tasks]
         short_ids = [task["short_id"] for task in tasks]
+        task_annotations = [task["annotations"] for task in tasks]
+        task_due_dates = [task["due_date"] for task in tasks]
+        task_tags = [task["tags"] for task in tasks]
         num_tasks = len(tasks)
         
         return render_template('task.html', 
@@ -153,6 +159,9 @@ def show_list():
                              taskseries_id=uuids,  # Use UUID as taskseries_id for compatibility
                              truelist_id=uuids,    # Use UUID as truelist_id for compatibility
                              short_ids=short_ids,
+                             task_annotations=task_annotations,
+                             task_due_dates=task_due_dates,
+                             task_tags=task_tags,
                              currentTaskIndex=0,
                              report_name=report_name)
         
@@ -423,6 +432,175 @@ def timeout_error(error):
     </body>
     </html>
     """, 408
+
+@app.route('/task/<task_id>/annotations', methods=['GET'])
+def get_task_annotations(task_id):
+    """Get all annotations for a specific task"""
+    try:
+        # Get task details including annotations
+        result = run_task_command([str(task_id), 'export'])
+        
+        if result.returncode != 0:
+            return jsonify({'error': 'Task not found', 'status': 'error'}), 404
+        
+        task_data = json.loads(result.stdout)
+        if not task_data:
+            return jsonify({'error': 'Task not found', 'status': 'error'}), 404
+        
+        task = task_data[0]
+        annotations = task.get('annotations', [])
+        
+        return jsonify({'annotations': annotations, 'status': 'success'})
+        
+    except Exception as e:
+        error_msg = f"Error getting annotations: {str(e)}"
+        print(f"DEBUG: {error_msg}")
+        return jsonify({'error': error_msg, 'status': 'error'}), 500
+
+@app.route('/task/<task_id>/annotations', methods=['POST'])
+def add_task_annotation(task_id):
+    """Add annotation to a task"""
+    try:
+        annotation_text = request.json.get('annotation')
+        if not annotation_text:
+            return jsonify({'error': 'Annotation text required', 'status': 'error'}), 400
+        
+        # Add annotation via TaskWarrior
+        result = run_task_command([str(task_id), 'annotate', annotation_text])
+        
+        if result.returncode != 0:
+            error_msg = f"TaskWarrior annotate failed: {result.stderr}"
+            return jsonify({'error': error_msg, 'status': 'error'}), 500
+        
+        return jsonify({'status': 'success', 'message': 'Annotation added successfully'})
+        
+    except Exception as e:
+        error_msg = f"Error adding annotation: {str(e)}"
+        print(f"DEBUG: {error_msg}")
+        return jsonify({'error': error_msg, 'status': 'error'}), 500
+
+@app.route('/task/<task_id>/annotations/<annotation_text>', methods=['DELETE'])
+def delete_task_annotation(task_id, annotation_text):
+    """Delete specific annotation from a task by text"""
+    try:
+        # TaskWarrior denotate expects the annotation text, not index
+        # URL decode the annotation text
+        from urllib.parse import unquote
+        decoded_text = unquote(annotation_text)
+        
+        print(f"DEBUG: Attempting to delete annotation: '{decoded_text}' from task {task_id}")
+        
+        result = run_task_command([str(task_id), 'denotate', decoded_text])
+        
+        if result.returncode != 0:
+            error_msg = f"TaskWarrior denotate failed: {result.stderr.strip()}"
+            print(f"DEBUG: {error_msg}")
+            print(f"DEBUG: TaskWarrior stdout: {result.stdout.strip()}")
+            return jsonify({'error': error_msg, 'status': 'error'}), 500
+        
+        print(f"DEBUG: Successfully deleted annotation from task {task_id}")
+        return jsonify({'status': 'success', 'message': 'Annotation deleted successfully'})
+        
+    except Exception as e:
+        error_msg = f"Error deleting annotation: {str(e)}"
+        print(f"DEBUG: {error_msg}")
+        return jsonify({'error': error_msg, 'status': 'error'}), 500
+
+@app.route('/task/<task_id>/due', methods=['GET'])
+def get_task_due_date(task_id):
+    """Get due date for a specific task"""
+    try:
+        result = run_task_command([str(task_id), 'export'])
+        
+        if result.returncode != 0:
+            return jsonify({'error': 'Task not found', 'status': 'error'}), 404
+        
+        task_data = json.loads(result.stdout)
+        if not task_data:
+            return jsonify({'error': 'Task not found', 'status': 'error'}), 404
+        
+        task = task_data[0]
+        due_date = task.get('due', None)
+        
+        return jsonify({'due_date': due_date, 'status': 'success'})
+        
+    except Exception as e:
+        error_msg = f"Error getting due date: {str(e)}"
+        print(f"DEBUG: {error_msg}")
+        return jsonify({'error': error_msg, 'status': 'error'}), 500
+
+@app.route('/task/<task_id>/due', methods=['POST'])
+def set_task_due_date(task_id):
+    """Set or update due date for a task"""
+    try:
+        due_date = request.json.get('due_date')
+        if not due_date:
+            return jsonify({'error': 'Due date required', 'status': 'error'}), 400
+        
+        # Set due date via TaskWarrior
+        result = run_task_command([str(task_id), 'modify', f'due:{due_date}'])
+        
+        if result.returncode != 0:
+            error_msg = f"TaskWarrior modify due failed: {result.stderr}"
+            return jsonify({'error': error_msg, 'status': 'error'}), 500
+        
+        return jsonify({'status': 'success', 'message': 'Due date updated successfully'})
+        
+    except Exception as e:
+        error_msg = f"Error setting due date: {str(e)}"
+        print(f"DEBUG: {error_msg}")
+        return jsonify({'error': error_msg, 'status': 'error'}), 500
+
+@app.route('/task/<task_id>/due', methods=['DELETE'])
+def remove_task_due_date(task_id):
+    """Remove due date from a task"""
+    try:
+        # Remove due date by setting it to empty
+        result = run_task_command([str(task_id), 'modify', 'due:'])
+        
+        if result.returncode != 0:
+            error_msg = f"TaskWarrior modify due failed: {result.stderr}"
+            return jsonify({'error': error_msg, 'status': 'error'}), 500
+        
+        return jsonify({'status': 'success', 'message': 'Due date removed successfully'})
+        
+    except Exception as e:
+        error_msg = f"Error removing due date: {str(e)}"
+        print(f"DEBUG: {error_msg}")
+        return jsonify({'error': error_msg, 'status': 'error'}), 500
+
+@app.route('/tasks/by-tag/<tag>', methods=['GET'])
+def get_tasks_by_tag(tag):
+    """Get all tasks with a specific tag"""
+    try:
+        # Query TaskWarrior for tasks with specific tag
+        # Correct syntax: task tag:tagname export
+        result = run_task_command([f'tag:{tag}', 'export'])
+        
+        if result.returncode != 0:
+            error_msg = f"TaskWarrior tag query failed: {result.stderr}"
+            return jsonify({'error': error_msg, 'status': 'error'}), 500
+        
+        if not result.stdout.strip():
+            return jsonify({'tasks': [], 'status': 'success'})
+        
+        tasks_data = json.loads(result.stdout)
+        
+        # Format tasks for display in modal
+        tasks = []
+        for task in tasks_data:
+            tasks.append({
+                'description': task.get('description', 'No description'),
+                'uuid': task.get('uuid', ''),
+                'short_id': task.get('uuid', '')[:8] if task.get('uuid') else 'unknown'
+            })
+        
+        return jsonify({'tasks': tasks, 'tag': tag, 'status': 'success'})
+        
+    except Exception as e:
+        error_msg = f"Error getting tasks by tag: {str(e)}"
+        print(f"DEBUG: {error_msg}")
+        return jsonify({'error': error_msg, 'status': 'error'}), 500
 
 if __name__ == '__main__':
     # Enable debug mode only when running directly (not in production)
