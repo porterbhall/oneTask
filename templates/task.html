@@ -10,7 +10,7 @@
 
 <body>
     <a href="/stats{{ '?report=' + request.args.get('report', 'next') }}" class="stats-link">Stats</a>
-    <h1 class="task-name">{{ formatted_tasks[currentTaskIndex] }}</h1>
+    <h1 class="task-name copyable" onclick="copyTaskName()">{{ formatted_tasks[currentTaskIndex] }}</h1>
     <div class="task-id-display" onclick="copyTaskId()">
         ID: <span id="current-task-id">{{ short_ids[currentTaskIndex] }}</span>
     </div>
@@ -135,6 +135,38 @@
             }, 1000);
         }).catch(function(err) {
             console.error('Failed to copy task ID: ', err);
+        });
+    }
+
+    // Function to copy task name to clipboard
+    function copyTaskName() {
+        var taskName = formatted_tasks[currentTaskIndex];
+        navigator.clipboard.writeText(taskName).then(function() {
+            console.log('Task name copied to clipboard: ' + taskName);
+            // Visual feedback
+            var taskNameElement = document.querySelector('.task-name');
+            var originalText = taskNameElement.innerHTML;
+            taskNameElement.innerHTML = 'Copied!';
+            setTimeout(function() {
+                taskNameElement.innerHTML = originalText;
+            }, 1000);
+        }).catch(function(err) {
+            console.error('Failed to copy task name: ', err);
+        });
+    }
+
+    // Function to copy annotation text to clipboard
+    function copyAnnotation(text, element) {
+        navigator.clipboard.writeText(text).then(function() {
+            console.log('Annotation copied to clipboard: ' + text);
+            // Visual feedback
+            var originalText = element.innerHTML;
+            element.innerHTML = 'Copied!';
+            setTimeout(function() {
+                element.innerHTML = originalText;
+            }, 1000);
+        }).catch(function(err) {
+            console.error('Failed to copy annotation: ', err);
         });
     }
 
@@ -458,27 +490,38 @@ function updateCountdown() {
     function updateAnnotationsDisplay() {
         const annotationsList = document.getElementById('annotations-list');
         const annotations = task_annotations[currentTaskIndex] || [];
-        
+
         annotationsList.innerHTML = '';
-        
+
         annotations.forEach((annotation, index) => {
             const annotationDiv = document.createElement('div');
             annotationDiv.className = 'annotation-item';
-            
+
             // Parse the annotation entry date
             const entryDate = parseTaskWarriorDate(annotation.entry);
             const dateDisplay = entryDate ? entryDate.toLocaleDateString() : 'Unknown date';
-            
-            annotationDiv.innerHTML = `
-                <div class="annotation-text">${annotation.description}</div>
-                <div class="annotation-meta">
-                    <small>${dateDisplay}</small>
-                    <button onclick="deleteAnnotation('${annotation.description.replace(/'/g, "\\'")}')" class="delete-btn">Delete</button>
-                </div>
+
+            // Create annotation text element with click-to-copy
+            const annotationText = document.createElement('div');
+            annotationText.className = 'annotation-text copyable';
+            annotationText.textContent = annotation.description;
+            annotationText.onclick = function() {
+                copyAnnotation(annotation.description, this);
+            };
+
+            // Create annotation meta element
+            const annotationMeta = document.createElement('div');
+            annotationMeta.className = 'annotation-meta';
+            annotationMeta.innerHTML = `
+                <small>${dateDisplay}</small>
+                <button onclick="deleteAnnotation('${annotation.description.replace(/'/g, "\\'")}')" class="delete-btn">Delete</button>
             `;
+
+            annotationDiv.appendChild(annotationText);
+            annotationDiv.appendChild(annotationMeta);
             annotationsList.appendChild(annotationDiv);
         });
-        
+
         if (annotations.length === 0) {
             annotationsList.innerHTML = '<p class="no-items">No notes yet</p>';
         }

@@ -32,6 +32,17 @@ body {
     color: #e6d7d7;
 }
 
+.task-name.copyable {
+    cursor: pointer;
+    padding: 5px 15px;
+    border-radius: 5px;
+    transition: all 0.2s ease;
+}
+
+.task-name.copyable:hover {
+    background-color: #4d4d4d;
+}
+
 .task-id-display {
     text-align: center;
     margin-bottom: 20px;
@@ -193,6 +204,19 @@ body {
 .annotation-text {
     margin-bottom: 5px;
     color: #e6d7d7;
+}
+
+.annotation-text.copyable {
+    cursor: pointer;
+    padding: 5px;
+    margin: -5px;
+    margin-bottom: 5px;
+    border-radius: 3px;
+    transition: all 0.2s ease;
+}
+
+.annotation-text.copyable:hover {
+    background-color: #4d4d4d;
 }
 
 .annotation-meta {
