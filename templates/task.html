@@ -49,6 +49,7 @@
             <div class="due-date-form">
                 <input type="date" id="new-due-date">
                 <button id="save-due-date">Save Due Date</button>
+                <button id="due-today">Due Today</button>
                 <button id="remove-due-date">Remove</button>
             </div>
         </div>
@@ -365,7 +366,7 @@ function updateCountdown() {
             case 'p':
                 goToPreviousTask();
                 break;
-            case 'c':
+            case 'd':
                 completeTask();
                 break;
             case 'n':
@@ -624,14 +625,14 @@ function updateCountdown() {
 
     function saveDueDate() {
         const newDueDate = document.getElementById('new-due-date').value;
-        
+
         if (!newDueDate) {
             alert('Please select a date');
             return;
         }
-        
+
         const taskId = task_id[currentTaskIndex];
-        
+
         fetch(`/task/${taskId}/due`, {
             method: 'POST',
             headers: {
@@ -652,6 +653,36 @@ function updateCountdown() {
         .catch(error => {
             console.error('Error:', error);
             alert('Error saving due date');
+        });
+    }
+
+    function setDueToday() {
+        const today = new Date();
+        const year = today.getFullYear();
+        const month = String(today.getMonth() + 1).padStart(2, '0');
+        const day = String(today.getDate()).padStart(2, '0');
+        const todayDate = `${year}-${month}-${day}`;
+
+        const taskId = task_id[currentTaskIndex];
+
+        fetch(`/task/${taskId}/due`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({ due_date: todayDate })
+        })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                refreshCurrentTaskData();
+            } else {
+                alert('Error setting due date: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Error setting due date');
         });
     }
 
@@ -750,6 +781,7 @@ function updateCountdown() {
     document.getElementById('toggle-details').onclick = toggleTaskDetails;
     document.getElementById('save-annotation').onclick = saveAnnotation;
     document.getElementById('save-due-date').onclick = saveDueDate;
+    document.getElementById('due-today').onclick = setDueToday;
     document.getElementById('remove-due-date').onclick = removeDueDate;
 
     // Modal close functionality
