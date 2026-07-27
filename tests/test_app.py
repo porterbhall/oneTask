@@ -4,7 +4,14 @@ from unittest.mock import patch, MagicMock
 
 import pytest
 
-from app import app, convert_taskwarrior_estimate_to_seconds, format_task_for_display, sorting_key
+from app import (
+    app,
+    convert_taskwarrior_estimate_to_seconds,
+    format_due_date_display,
+    format_estimate_display,
+    format_task_for_display,
+    sorting_key,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -131,6 +138,41 @@ class TestSortingKey:
 
 
 # ---------------------------------------------------------------------------
+# Unit tests: format_due_date_display / format_estimate_display
+# ---------------------------------------------------------------------------
+
+class TestFormatDueDateDisplay:
+    def test_none_returns_none(self):
+        assert format_due_date_display(None) is None
+
+    def test_empty_string_returns_none(self):
+        assert format_due_date_display('') is None
+
+    def test_valid_taskwarrior_date(self):
+        assert format_due_date_display('20260705T070000Z') == 'Jul 05, 2026'
+
+    def test_unparseable_date_returned_as_is(self):
+        assert format_due_date_display('not-a-date') == 'not-a-date'
+
+
+class TestFormatEstimateDisplay:
+    def test_zero_returns_none(self):
+        assert format_estimate_display(0) is None
+
+    def test_none_returns_none(self):
+        assert format_estimate_display(None) is None
+
+    def test_minutes_only(self):
+        assert format_estimate_display(1800) == '30m'
+
+    def test_hours_only(self):
+        assert format_estimate_display(7200) == '2h'
+
+    def test_hours_and_minutes(self):
+        assert format_estimate_display(5400) == '1h 30m'
+
+
+# ---------------------------------------------------------------------------
 # Route tests: GET /
 # ---------------------------------------------------------------------------
 
@@ -160,6 +202,55 @@ class TestShowList:
         mock_run.return_value = mock_result(stdout='not valid json')
         response = client.get('/')
         assert response.status_code == 500
+
+    @patch('app.subprocess.run')
+    def test_task_param_jumps_to_matching_task(self, mock_run, client):
+        other_task = {**SAMPLE_TASK, 'uuid': 'def67890-0000-0000-0000-000000000002', 'description': 'Second task'}
+        mock_run.return_value = mock_result(stdout=json.dumps([SAMPLE_TASK, other_task]))
+        response = client.get(f'/?task={other_task["uuid"]}')
+        assert response.status_code == 200
+        # current-task-id is rendered only for the selected task's short_id
+        assert b'id="current-task-id">def67890<' in response.data
+
+    @patch('app.subprocess.run')
+    def test_unknown_task_param_falls_back_to_first(self, mock_run, client):
+        mock_run.return_value = mock_result(stdout=json.dumps([SAMPLE_TASK]))
+        response = client.get('/?task=does-not-exist')
+        assert response.status_code == 200
+        assert b'id="current-task-id">abc12345<' in response.data
+
+
+# ---------------------------------------------------------------------------
+# Route tests: GET /list
+# ---------------------------------------------------------------------------
+
+class TestShowTaskList:
+    @patch('app.subprocess.run')
+    def test_happy_path(self, mock_run, client):
+        mock_run.return_value = mock_result(stdout=json.dumps([SAMPLE_TASK]))
+        response = client.get('/list')
+        assert response.status_code == 200
+        assert b'Test task' in response.data
+        assert b'Back to OneTask' in response.data
+
+    @patch('app.subprocess.run')
+    def test_empty_report_shows_placeholder(self, mock_run, client):
+        mock_run.return_value = mock_result(stdout='[]')
+        response = client.get('/list')
+        assert response.status_code == 200
+        assert b'No tasks to display' in response.data
+
+    @patch('app.subprocess.run')
+    def test_custom_report_param(self, mock_run, client):
+        mock_run.return_value = mock_result(stdout=json.dumps([SAMPLE_TASK]))
+        client.get('/list?report=focus')
+        assert mock_run.call_args[0][0] == ['task', 'export', 'focus']
+
+    @patch('app.subprocess.run')
+    def test_task_row_links_to_main_view(self, mock_run, client):
+        mock_run.return_value = mock_result(stdout=json.dumps([SAMPLE_TASK]))
+        response = client.get('/list')
+        assert f'/?report=next&task={SAMPLE_TASK["uuid"]}'.encode() in response.data
 
 
 # ---------------------------------------------------------------------------

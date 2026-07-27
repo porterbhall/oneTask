@@ -1,6 +1,7 @@
 import json
 import os
 import subprocess
+from datetime import datetime
 from flask import Flask, render_template, request, jsonify, Response
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
@@ -124,6 +125,25 @@ def convert_taskwarrior_estimate_to_seconds(estimate):
     
     return total_seconds
 
+def format_due_date_display(due_date):
+    """Format a TaskWarrior due date (ISO8601 basic, e.g. 20260705T070000Z) for display"""
+    if not due_date:
+        return None
+    try:
+        return datetime.strptime(due_date, '%Y%m%dT%H%M%SZ').strftime('%b %d, %Y')
+    except ValueError:
+        return due_date
+
+def format_estimate_display(total_seconds):
+    """Format a task's time estimate in seconds as a short human string, or None if unset"""
+    if not total_seconds:
+        return None
+    hours = total_seconds // 3600
+    minutes = (total_seconds % 3600) // 60
+    if hours > 0:
+        return f"{hours}h {minutes}m" if minutes else f"{hours}h"
+    return f"{minutes}m"
+
 def sorting_key(task_details):
     """Sort tasks by priority, then by time estimate, then by name"""
     return (task_details["priority"] or float('inf'),
@@ -167,6 +187,12 @@ def show_list():
         task_priorities = [task["priority"] for task in tasks]
         num_tasks = len(tasks)
 
+        # Jump to a specific task (e.g. from the list view) by UUID
+        current_task_index = 0
+        requested_uuid = request.args.get('task')
+        if requested_uuid and requested_uuid in uuids:
+            current_task_index = uuids.index(requested_uuid)
+
         return render_template('task.html',
                              formatted_tasks=formatted_tasks,
                              task_urls=task_urls,
@@ -181,7 +207,7 @@ def show_list():
                              task_tags=task_tags,
                              task_names=task_names,
                              task_priorities=task_priorities,
-                             currentTaskIndex=0,
+                             currentTaskIndex=current_task_index,
                              report_name=report_name)
         
     except TimeoutError as e:
@@ -218,6 +244,37 @@ def show_list():
                 <li>Verify your TaskWarrior configuration</li>
                 <li><a href="javascript:location.reload()">Refresh the page</a></li>
             </ul>
+            <p style="color: #666; font-size: 12px;">Error: {error_msg}</p>
+        </body>
+        </html>
+        """, 500
+
+@app.route('/list')
+def show_task_list():
+    """List view - browse all tasks in a report on their own page"""
+    report_name = request.args.get('report', default='next')
+
+    try:
+        raw_tasks = get_tasks_from_report(report_name)
+        tasks = [format_task_for_display(task) for task in raw_tasks] if raw_tasks else []
+        for task in tasks:
+            task['due_date_display'] = format_due_date_display(task['due_date'])
+            task['estimate_display'] = format_estimate_display(task['total_seconds'])
+
+        return render_template('list.html',
+                             tasks=tasks,
+                             report_name=report_name)
+
+    except Exception as e:
+        error_msg = f"Error building task list: {str(e)}"
+        print(f"DEBUG: {error_msg}")
+        return f"""
+        <html>
+        <head><title>OneTask - List Error</title></head>
+        <body style="font-family: Arial, sans-serif; margin: 40px; color: #333;">
+            <h1 style="color: #d32f2f;">List Error</h1>
+            <p>Unable to build the task list.</p>
+            <p><a href="/">← Go back to OneTask</a></p>
             <p style="color: #666; font-size: 12px;">Error: {error_msg}</p>
         </body>
         </html>

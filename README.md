@@ -1,6 +1,6 @@
 # OneTask
 
-> v2.0.0 · source-available, AGPL-3.0
+> v2.1.0 · source-available, AGPL-3.0
 
 A Pomodoro-style task management web application that wraps [TaskWarrior](https://taskwarrior.org/) in a focused, timer-based interface. It shows you one task at a time, counts down its time estimate, and lets you stay in flow without switching back to the terminal.
 
@@ -10,7 +10,7 @@ OneTask is a personal, single-user tool shared in case it's useful to you. See [
 
 - **Timer Interface**: Visual countdown timer with click-to-pause functionality
 - **TaskWarrior Integration**: Uses TaskWarrior's native report system, respecting all `.taskrc` configurations
-- **Task Navigation**: Navigate through tasks with Previous/Next buttons
+- **Task Navigation**: Navigate through tasks with Previous/Next buttons, or jump straight to one from the full List view
 - **Task Identifiers**: Clickable 8-character task IDs for easy terminal lookup
 - **Statistics Page**: Report-specific stats including pending tasks, completed today, and time estimates
 - **Visual Indicators**: Red background for overdue tasks
@@ -137,6 +137,14 @@ Main application interface. Loads and displays tasks from the specified TaskWarr
 **Query Parameters:**
 - `report` (optional): TaskWarrior report name (default: "next")
   - Examples: `/?report=focus`, `/?report=ready`, `/?report=someday`
+- `task` (optional): UUID of the task to jump to (used by the List view). Falls back to the first task if not found.
+
+### GET /list
+Full-page list of every task in the specified report, for browsing or jumping to a specific task. Each row links back to `/` with the task pre-selected.
+
+**Query Parameters:**
+- `report` (optional): TaskWarrior report name (default: "next")
+  - Examples: `/list?report=focus`, `/list?report=ready`
 
 ### POST /complete_task
 Marks a task as complete in TaskWarrior.
