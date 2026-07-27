@@ -96,6 +96,7 @@ OneTask is configured through environment variables.
 | `ONETASK_PORT` | `5000` | Port the server listens on |
 | `ONETASK_HOST` | `127.0.0.1` | Interface to bind to. Set to `0.0.0.0` to enable LAN access (requires `ONETASK_PASSWORD`) |
 | `ONETASK_PASSWORD` | _(unset)_ | Password required to access the app. **Mandatory** for LAN access |
+| `ONETASK_DEBUG` | _(off)_ | Enables Flask's debug mode/reloader. **Only takes effect when bound to localhost** — if set while bound beyond localhost, it is force-disabled with a notice, since the debugger allows remote code execution |
 
 ### Enabling access from your phone / other devices
 

@@ -754,4 +754,22 @@ if __name__ == '__main__':
             flush=True
         )
 
-    app.run(host=host, port=port, debug=False)
+    debug_requested = os.environ.get('ONETASK_DEBUG', '').lower() in ('1', 'true', 'yes', 'on')
+    debug_mode = debug_requested and host == '127.0.0.1'
+
+    if debug_requested and not debug_mode:
+        print(
+            '\n'
+            '┌─────────────────────────────────────────────────────────────┐\n'
+            '│  ONETASK_DEBUG ignored: debug mode is only permitted when   │\n'
+            '│  bound to localhost (127.0.0.1).                            │\n'
+            '│                                                             │\n'
+            '│  The Werkzeug debugger allows remote code execution, so it  │\n'
+            '│  cannot be combined with LAN/network binding.               │\n'
+            '└─────────────────────────────────────────────────────────────┘\n',
+            flush=True
+        )
+
+    print(f'Debug mode: {"ON" if debug_mode else "off"}', flush=True)
+
+    app.run(host=host, port=port, debug=debug_mode)
