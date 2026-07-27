@@ -33,25 +33,6 @@ body {
     margin-bottom: 10px;
 }
 
-.copy-name-btn {
-    background: none;
-    border: 1px solid #4d4d4d;
-    color: #888;
-    border-radius: 3px;
-    padding: 4px 9px;
-    cursor: pointer;
-    font-size: 18px;
-    line-height: 1;
-    transition: all 0.2s ease;
-    flex-shrink: 0;
-}
-
-.copy-name-btn:hover {
-    color: #c2c2c2;
-    border-color: #888;
-    background-color: #4d4d4d;
-}
-
 .task-name {
     font-size: 48px;
     text-align: center;

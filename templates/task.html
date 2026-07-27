@@ -11,7 +11,6 @@
 <body>
     <a href="/stats{{ '?report=' + request.args.get('report', 'next') }}" class="stats-link">Stats</a>
     <div class="task-name-container">
-        <button class="copy-name-btn" onclick="copyTaskName()" title="Copy to clipboard">⎘</button>
         <h1 class="task-name" onclick="enterTitleEditMode()">{{ formatted_tasks[currentTaskIndex] }}</h1>
     </div>
     <div class="title-edit-form" id="title-edit-form" style="display: none;">
@@ -195,19 +194,6 @@
             }, 1000);
         }).catch(function(err) {
             console.error('Failed to copy task ID: ', err);
-        });
-    }
-
-    // Function to copy task name to clipboard
-    function copyTaskName() {
-        var taskName = task_names[currentTaskIndex];
-        navigator.clipboard.writeText(taskName).then(function() {
-            var btn = document.querySelector('.copy-name-btn');
-            var original = btn.innerHTML;
-            btn.innerHTML = '✓';
-            setTimeout(function() { btn.innerHTML = original; }, 1000);
-        }).catch(function(err) {
-            console.error('Failed to copy task name: ', err);
         });
     }
 
@@ -1070,12 +1056,10 @@ function updateCountdown() {
     function enterTitleEditMode() {
         if (isTaskCompleted(currentTaskIndex)) return;
         var h1 = document.querySelector('.task-name');
-        var copyBtn = document.querySelector('.copy-name-btn');
         var editForm = document.getElementById('title-edit-form');
         var input = document.getElementById('title-input');
         input.value = task_names[currentTaskIndex];
         h1.style.display = 'none';
-        copyBtn.style.display = 'none';
         editForm.style.display = 'block';
         input.focus();
         input.select();
@@ -1083,10 +1067,8 @@ function updateCountdown() {
 
     function exitTitleEditMode() {
         var h1 = document.querySelector('.task-name');
-        var copyBtn = document.querySelector('.copy-name-btn');
         var editForm = document.getElementById('title-edit-form');
         h1.style.display = '';
-        copyBtn.style.display = '';
         editForm.style.display = 'none';
     }
 
