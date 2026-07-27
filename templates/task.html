@@ -10,6 +10,7 @@
 
 <body>
     <a href="/stats{{ '?report=' + request.args.get('report', 'next') }}" class="stats-link">Stats</a>
+    <a href="#" class="list-link" onclick="openTaskList(); return false;">List</a>
     <div class="task-name-container">
         <h1 class="task-name" onclick="enterTitleEditMode()">{{ formatted_tasks[currentTaskIndex] }}</h1>
     </div>
@@ -119,12 +120,21 @@
     <!-- Tag Modal -->
     <div id="tag-modal" class="modal" style="display: none;">
         <div class="modal-content">
-            <span class="close">&times;</span>
+            <span class="close" id="tag-modal-close">&times;</span>
             <h3 id="modal-tag-title">Tasks with tag: </h3>
             <div id="modal-task-list"></div>
         </div>
     </div>
-    
+
+    <!-- Task List Modal (ON-34) -->
+    <div id="list-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <span class="close" id="list-modal-close">&times;</span>
+            <h3>Task List</h3>
+            <div id="list-modal-tasks"></div>
+        </div>
+    </div>
+
     <script type="text/javascript">
     // Get the remaining seconds from the app and convert it to a moment.js object
     var currentTaskIndex = 0; // Keep track of the current task index
@@ -1200,42 +1210,96 @@ function updateCountdown() {
     });
 
     // Modal close functionality
-    document.getElementsByClassName('close')[0].onclick = function() {
+    document.getElementById('tag-modal-close').onclick = function() {
         document.getElementById('tag-modal').style.display = 'none';
+    }
+    document.getElementById('list-modal-close').onclick = function() {
+        document.getElementById('list-modal').style.display = 'none';
     }
 
     window.onclick = function(event) {
-        const modal = document.getElementById('tag-modal');
-        if (event.target === modal) {
-            modal.style.display = 'none';
+        const tagModal = document.getElementById('tag-modal');
+        const listModal = document.getElementById('list-modal');
+        if (event.target === tagModal) {
+            tagModal.style.display = 'none';
+        }
+        if (event.target === listModal) {
+            listModal.style.display = 'none';
         }
     }
 
     // Update task navigation functions to refresh details when visible
-    function goToPreviousTask() {
-        if (currentTaskIndex > 0) {
-            currentTaskIndex--;
-            updateTaskName();
-            restoreStyles();
-            updateLink();
-            updateTaskId();
-            if (taskDetailsVisible) {
-                updateTaskDetails();
-            }
+    function goToTaskIndex(index) {
+        if (index < 0 || index >= numTasks) return;
+        currentTaskIndex = index;
+        updateTaskName();
+        restoreStyles();
+        updateLink();
+        updateTaskId();
+        if (taskDetailsVisible) {
+            updateTaskDetails();
         }
     }
 
+    function goToPreviousTask() {
+        goToTaskIndex(currentTaskIndex - 1);
+    }
+
     function skipToNextTask() {
-        if (currentTaskIndex < numTasks - 1) {
-            currentTaskIndex++;
-            updateTaskName();
-            restoreStyles();
-            updateLink();
-            updateTaskId();
-            if (taskDetailsVisible) {
-                updateTaskDetails();
+        goToTaskIndex(currentTaskIndex + 1);
+    }
+
+    // Task List modal (ON-34)
+    function openTaskList() {
+        const listContainer = document.getElementById('list-modal-tasks');
+        listContainer.innerHTML = '';
+
+        for (let i = 0; i < numTasks; i++) {
+            const row = document.createElement('div');
+            row.className = 'modal-task-item list-task-row';
+            if (i === currentTaskIndex) {
+                row.classList.add('list-task-row-active');
             }
+            if (isTaskCompleted(i)) {
+                row.classList.add('list-task-row-completed');
+            }
+            row.onclick = (function(index) {
+                return function() {
+                    goToTaskIndex(index);
+                    document.getElementById('list-modal').style.display = 'none';
+                };
+            })(i);
+
+            const nameDiv = document.createElement('div');
+            nameDiv.className = 'list-task-name';
+            nameDiv.textContent = formatted_tasks[i];
+            row.appendChild(nameDiv);
+
+            const metaParts = [];
+            const dueDate = task_due_dates[i];
+            if (dueDate) {
+                const parsedDate = parseTaskWarriorDate(dueDate);
+                metaParts.push('Due: ' + (parsedDate ? parsedDate.toLocaleDateString() : dueDate));
+            }
+            const seconds = remainingSeconds[i];
+            if (seconds > 0) {
+                metaParts.push(moment.duration(seconds, 'seconds').humanize() + ' estimated');
+            }
+            if (metaParts.length > 0) {
+                const metaDiv = document.createElement('div');
+                metaDiv.className = 'list-task-meta';
+                metaDiv.textContent = metaParts.join(' · ');
+                row.appendChild(metaDiv);
+            }
+
+            listContainer.appendChild(row);
         }
+
+        if (numTasks === 0) {
+            listContainer.innerHTML = '<p class="no-items">No tasks to display</p>';
+        }
+
+        document.getElementById('list-modal').style.display = 'block';
     }
 
     // Start the countdown
