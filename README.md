@@ -1,6 +1,6 @@
 # OneTask
 
-> v2.1.0 · source-available, AGPL-3.0
+> v2.1.1 · source-available, AGPL-3.0
 
 A Pomodoro-style task management web application that wraps [TaskWarrior](https://taskwarrior.org/) in a focused, timer-based interface. It shows you one task at a time, counts down its time estimate, and lets you stay in flow without switching back to the terminal.
 
