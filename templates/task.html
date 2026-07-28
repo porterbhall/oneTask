@@ -128,7 +128,7 @@
 
     <script type="text/javascript">
     // Get the remaining seconds from the app and convert it to a moment.js object
-    var currentTaskIndex = 0; // Keep track of the current task index
+    var currentTaskIndex = {{ currentTaskIndex }}; // Keep track of the current task index
     var taskUrl = {{ task_urls | tojson }}
     var numTasks = {{ num_tasks }}; // Total number of tasks
     var remainingSeconds = {{ remaining_seconds | tojson }};

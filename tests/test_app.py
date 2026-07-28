@@ -211,6 +211,10 @@ class TestShowList:
         assert response.status_code == 200
         # current-task-id is rendered only for the selected task's short_id
         assert b'id="current-task-id">def67890<' in response.data
+        # the JS currentTaskIndex must match the server-selected index too, or every
+        # JS-driven read (annotations, due date, tags, URL, countdown) silently falls
+        # back to task 0 regardless of what the server-rendered HTML shows
+        assert b'var currentTaskIndex = 1;' in response.data
 
     @patch('app.subprocess.run')
     def test_unknown_task_param_falls_back_to_first(self, mock_run, client):
