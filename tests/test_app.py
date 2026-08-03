@@ -44,6 +44,11 @@ def task_args(*args):
 CONFIG_WITH_ESTIMATE_UDA = mock_result(stdout='uda.estimate.type=duration\nuda.estimate.label=Est\n')
 CONFIG_WITHOUT_ESTIMATE_UDA = mock_result(stdout='dateformat=Y-M-D\n')
 
+CONFIG_WITH_REPORTS = mock_result(stdout=(
+    'report.next.columns=id,description\n'
+    'report.focus.columns=id,priority,description\n'
+))
+
 
 SAMPLE_TASK = {
     'uuid': 'abc12345-0000-0000-0000-000000000001',
@@ -309,6 +314,40 @@ class TestUrlUdaDefined:
         assert url_uda_defined({}) is False
 
 
+class TestGetReportNames:
+    def test_extracts_names_from_columns_keys(self):
+        from app import get_report_names
+        config = {
+            'report.next.columns': 'id,description',
+            'report.focus.columns': 'id,priority,description',
+            'report.next.labels': 'ID,Description',  # not a .columns key -> ignored
+            'dateformat': 'Y-M-D',
+        }
+        assert get_report_names(config) == {'next', 'focus'}
+
+    def test_empty_config_returns_empty_set(self):
+        from app import get_report_names
+        assert get_report_names({}) == set()
+
+
+class TestResolveReportName:
+    def test_valid_report_passes_through_unchanged(self):
+        from app import resolve_report_name
+        assert resolve_report_name('focus', {'next', 'focus'}) == ('focus', False)
+
+    def test_unknown_report_falls_back_to_next(self):
+        from app import resolve_report_name
+        assert resolve_report_name('bogus', {'next', 'focus'}) == ('next', True)
+
+    def test_empty_report_names_trusts_request_as_is(self):
+        # Config couldn't be resolved (report_names empty) — don't
+        # second-guess the request; built-in reports must keep working
+        # even if this detection layer can't run (ON-69/A5).
+        from app import resolve_report_name
+        assert resolve_report_name('next', set()) == ('next', False)
+        assert resolve_report_name('anything', set()) == ('anything', False)
+
+
 class TestGetPriorityValues:
     def test_reads_custom_scheme_from_config(self):
         from app import get_priority_values
@@ -490,6 +529,43 @@ class TestShowList:
         assert response.status_code == 200
         assert b'var urlConfigured = false' in response.data
 
+    @patch('app.subprocess.run')
+    def test_valid_report_shows_no_fallback_notice(self, mock_run, client):
+        mock_run.side_effect = [
+            CONFIG_WITH_REPORTS,
+            mock_result(stdout=json.dumps([SAMPLE_TASK])),
+        ]
+        response = client.get('/?report=focus')
+        assert response.status_code == 200
+        assert b'not found' not in response.data
+
+    @patch('app.subprocess.run')
+    def test_unknown_report_falls_back_to_next_with_notice(self, mock_run, client):
+        # ON-69/A5: a typo'd/missing report must not silently render as an
+        # empty report — show a clear notice and fall back to 'next'.
+        mock_run.side_effect = [
+            CONFIG_WITH_REPORTS,
+            mock_result(stdout=json.dumps([SAMPLE_TASK])),
+        ]
+        response = client.get('/?report=totallyBogusReportName')
+        assert response.status_code == 200
+        assert b'Report "totallyBogusReportName" not found' in response.data
+        # the actual data fetch used the fallback, not the bogus name
+        assert mock_run.call_args[0][0] == task_args('export', 'next')
+
+    @patch('app.subprocess.run')
+    def test_unresolvable_config_does_not_block_built_in_reports(self, mock_run, client):
+        # If the config fetch itself fails/returns nothing, report validation
+        # can't run — built-in reports must still work unchanged (AC).
+        mock_run.side_effect = [
+            mock_result(returncode=1, stderr='task: command not found'),
+            mock_result(stdout=json.dumps([SAMPLE_TASK])),
+        ]
+        response = client.get('/?report=next')
+        assert response.status_code == 200
+        assert b'not found' not in response.data
+        assert mock_run.call_args[0][0] == task_args('export', 'next')
+
 
 # ---------------------------------------------------------------------------
 # Route tests: GET /list
@@ -532,6 +608,17 @@ class TestShowTaskList:
         response = client.get('/list')
         assert response.status_code == 200
         assert b'(default)' in response.data
+
+    @patch('app.subprocess.run')
+    def test_unknown_report_falls_back_to_next_with_notice(self, mock_run, client):
+        mock_run.side_effect = [
+            CONFIG_WITH_REPORTS,
+            mock_result(stdout=json.dumps([SAMPLE_TASK])),
+        ]
+        response = client.get('/list?report=totallyBogusReportName')
+        assert response.status_code == 200
+        assert b'Report "totallyBogusReportName" not found' in response.data
+        assert mock_run.call_args[0][0] == task_args('export', 'next')
 
 
 # ---------------------------------------------------------------------------
@@ -966,6 +1053,19 @@ class TestShowStats:
         response = client.get('/stats')
         assert response.status_code == 200
         assert b'Tasks completed today: 0' in response.data
+
+    @patch('app.subprocess.run')
+    def test_unknown_report_falls_back_to_next_with_notice(self, mock_run, client):
+        mock_run.side_effect = [
+            CONFIG_WITH_REPORTS,
+            mock_result(stdout=json.dumps([SAMPLE_TASK])),
+            mock_result(stdout=''),
+        ]
+        response = client.get('/stats?report=totallyBogusReportName')
+        assert response.status_code == 200
+        assert b'Report "totallyBogusReportName" not found' in response.data
+        # "Next Report Stats" heading confirms the effective report is 'next'
+        assert b'Next Report Stats' in response.data
 
     @patch('app.subprocess.run')
     def test_outer_exception_returns_error_page(self, mock_run, client):

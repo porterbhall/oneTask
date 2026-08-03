@@ -10,7 +10,13 @@
 <body>
     <div class="stats-container">
         <h1>{{ report_name }} Report Stats</h1>
-        
+
+        {% if report_invalid %}
+        <div class="report-fallback-notice">
+            Report "{{ requested_report_name }}" not found — showing "next" instead.
+        </div>
+        {% endif %}
+
         <div class="stats-content">
             <p>Pending tasks in the {{ report_name.lower() }} list: {{ pending_count }}</p>
             <p>Tasks completed today: {{ completed_today }}</p>

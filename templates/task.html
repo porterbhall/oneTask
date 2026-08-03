@@ -11,6 +11,11 @@
 <body>
     <a href="/stats{{ '?report=' + request.args.get('report', 'next') }}" class="stats-link">Stats</a>
     <a href="/list{{ '?report=' + request.args.get('report', 'next') }}" class="list-link">List</a>
+    {% if report_invalid %}
+    <div class="report-fallback-notice">
+        Report "{{ requested_report_name }}" not found — showing "next" instead.
+    </div>
+    {% endif %}
     <div class="task-name-container">
         <h1 class="task-name" onclick="enterTitleEditMode()">{{ formatted_tasks[currentTaskIndex] }}</h1>
     </div>

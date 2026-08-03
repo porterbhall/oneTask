@@ -100,6 +100,25 @@ def url_uda_defined(config):
     """Whether the `url` UDA is configured, per resolved TaskWarrior config (ON-68/A4)."""
     return any(key.startswith('uda.url.') for key in config)
 
+def get_report_names(config):
+    """Set of valid TaskWarrior report names, derived from resolved config —
+    every report defines a `report.<name>.columns` key (ON-69/A5)."""
+    names = set()
+    for key in config:
+        if key.startswith('report.') and key.endswith('.columns'):
+            names.add(key[len('report.'):-len('.columns')])
+    return names
+
+def resolve_report_name(requested, report_names):
+    """(effective_name, was_invalid) for a requested report. Falls back to
+    'next' when the requested report isn't in the known set. If the known
+    set is empty (config couldn't be resolved), trust the request as-is
+    rather than second-guess it — built-in reports must keep working even
+    if this detection layer can't run (ON-69/A5)."""
+    if not report_names or requested in report_names:
+        return requested, False
+    return 'next', True
+
 # Native TaskWarrior priority scheme, used when uda.priority.values isn't
 # customized (this is also literally what a stock install resolves to).
 DEFAULT_PRIORITY_VALUES = ('H', 'M', 'L')
@@ -235,15 +254,21 @@ def show_list():
     print(f"DEBUG: Starting show_list()")
     
     # Get report name from query string (default to 'next')
-    report_name = request.args.get('report', default='next')
-    print(f"DEBUG: Using report: {report_name}")
-    
+    requested_report_name = request.args.get('report', default='next')
+
     try:
         # Get tasks from TaskWarrior
         config = get_resolved_config()
         estimate_configured = estimate_uda_defined(config)
         priority_values = get_priority_values(config)
         url_configured = url_uda_defined(config)
+
+        # ON-69/A5: an unknown report (typo, or a custom report a stock
+        # install doesn't have) falls back to 'next' with a clear notice,
+        # instead of silently rendering as an empty/misleading report.
+        report_name, report_invalid = resolve_report_name(requested_report_name, get_report_names(config))
+        print(f"DEBUG: Using report: {report_name}")
+
         raw_tasks = get_tasks_from_report(report_name)
         print(f"DEBUG: Got {len(raw_tasks)} tasks from TaskWarrior")
 
@@ -284,6 +309,8 @@ def show_list():
                              estimate_is_default=estimate_is_default,
                              priority_values=priority_values,
                              url_configured=url_configured,
+                             report_invalid=report_invalid,
+                             requested_report_name=requested_report_name,
                              num_tasks=num_tasks,
                              task_id=task_ids,
                              taskseries_id=uuids,  # Use UUID as taskseries_id for compatibility
@@ -339,12 +366,13 @@ def show_list():
 @app.route('/list')
 def show_task_list():
     """List view - browse all tasks in a report on their own page"""
-    report_name = request.args.get('report', default='next')
+    requested_report_name = request.args.get('report', default='next')
 
     try:
         config = get_resolved_config()
         estimate_configured = estimate_uda_defined(config)
         priority_values = get_priority_values(config)
+        report_name, report_invalid = resolve_report_name(requested_report_name, get_report_names(config))
         raw_tasks = get_tasks_from_report(report_name)
         tasks = [format_task_for_display(task, estimate_configured, priority_values) for task in raw_tasks] if raw_tasks else []
         for task in tasks:
@@ -353,7 +381,9 @@ def show_task_list():
 
         return render_template('list.html',
                              tasks=tasks,
-                             report_name=report_name)
+                             report_name=report_name,
+                             report_invalid=report_invalid,
+                             requested_report_name=requested_report_name)
 
     except Exception as e:
         error_msg = f"Error building task list: {str(e)}"
@@ -496,14 +526,18 @@ def capture_task():
 def show_stats():
     """Display statistics for the current report"""
     # Get report name from query string (default to 'next')
-    report_name = request.args.get('report', default='next')
-    print(f"DEBUG: Showing stats for report: {report_name}")
-    
+    requested_report_name = request.args.get('report', default='next')
+
     try:
         # If the estimate UDA isn't configured, there's nothing per-task to
         # read, so fall back to the same default-per-task total the timer
         # uses (ON-66/A2).
-        estimate_configured = estimate_uda_defined(get_resolved_config())
+        config = get_resolved_config()
+        estimate_configured = estimate_uda_defined(config)
+
+        # ON-69/A5: unknown report -> fall back to 'next' with a clear notice.
+        report_name, report_invalid = resolve_report_name(requested_report_name, get_report_names(config))
+        print(f"DEBUG: Showing stats for report: {report_name}")
 
         # Get current pending tasks from the report
         pending_tasks = get_tasks_from_report(report_name)
@@ -552,7 +586,9 @@ def show_stats():
                              pending_count=pending_count,
                              completed_today=completed_today,
                              time_estimate=time_estimate_display,
-                             current_report=report_name)
+                             current_report=report_name,
+                             report_invalid=report_invalid,
+                             requested_report_name=requested_report_name)
         
     except Exception as e:
         error_msg = f"Error generating stats: {str(e)}"

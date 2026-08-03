@@ -11,6 +11,12 @@
     <div class="list-container">
         <h1>{{ report_name.capitalize() }} Tasks</h1>
 
+        {% if report_invalid %}
+        <div class="report-fallback-notice">
+            Report "{{ requested_report_name }}" not found — showing "next" instead.
+        </div>
+        {% endif %}
+
         {% if tasks %}
             {% for task in tasks %}
             <a href="/?report={{ report_name }}&task={{ task.uuid }}" class="list-task-row">
