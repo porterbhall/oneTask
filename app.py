@@ -2,7 +2,7 @@ import json
 import os
 import subprocess
 from datetime import datetime
-from flask import Flask, render_template, request, jsonify, Response
+from flask import Flask, render_template, request, jsonify, Response, redirect, url_for
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
 
@@ -363,9 +363,24 @@ def show_list():
         </html>
         """, 500
 
+def count_completed_today():
+    """Count of tasks completed today, via `task completed end:today`."""
+    try:
+        completed_result = run_task_command(['completed', 'end:today'])
+        if completed_result.returncode == 0 and completed_result.stdout.strip():
+            # Count actual task entries by looking for lines that start with " - " (completed task indicator)
+            output_lines = completed_result.stdout.strip().split('\n')
+            task_lines = [line for line in output_lines if line.strip().startswith('- ')]
+            return len(task_lines)
+    except Exception as e:
+        print(f"DEBUG: Error getting completed tasks: {e}")
+    return 0
+
 @app.route('/list')
 def show_task_list():
-    """List view - browse all tasks in a report on their own page"""
+    """Combined stats + list view for a report (ON-62/B0): a stats summary
+    header (pending, completed today, estimate remaining) above the full
+    task list, reached from the timer view's top-left 'List' link."""
     requested_report_name = request.args.get('report', default='next')
 
     try:
@@ -379,11 +394,22 @@ def show_task_list():
             task['due_date_display'] = format_due_date_display(task['due_date'])
             task['estimate_display'] = format_estimate_display(task['total_seconds'])
 
+        # Stats summary derived from the same task fetch used for the list
+        # below — one TaskWarrior export covers both, where /stats and
+        # /list previously each fetched it independently.
+        pending_count = len(tasks)
+        total_estimate_seconds = sum(task['total_seconds'] for task in tasks)
+        estimate_display = format_estimate_display(total_estimate_seconds) or '0m'
+        completed_today = count_completed_today()
+
         return render_template('list.html',
                              tasks=tasks,
                              report_name=report_name,
                              report_invalid=report_invalid,
-                             requested_report_name=requested_report_name)
+                             requested_report_name=requested_report_name,
+                             pending_count=pending_count,
+                             completed_today=completed_today,
+                             estimate_display=estimate_display)
 
     except Exception as e:
         error_msg = f"Error building task list: {str(e)}"
@@ -524,86 +550,10 @@ def capture_task():
 
 @app.route('/stats')
 def show_stats():
-    """Display statistics for the current report"""
-    # Get report name from query string (default to 'next')
-    requested_report_name = request.args.get('report', default='next')
-
-    try:
-        # If the estimate UDA isn't configured, there's nothing per-task to
-        # read, so fall back to the same default-per-task total the timer
-        # uses (ON-66/A2).
-        config = get_resolved_config()
-        estimate_configured = estimate_uda_defined(config)
-
-        # ON-69/A5: unknown report -> fall back to 'next' with a clear notice.
-        report_name, report_invalid = resolve_report_name(requested_report_name, get_report_names(config))
-        print(f"DEBUG: Showing stats for report: {report_name}")
-
-        # Get current pending tasks from the report
-        pending_tasks = get_tasks_from_report(report_name)
-        pending_count = len(pending_tasks)
-
-        # Calculate sum of time estimates for pending tasks
-        if estimate_configured:
-            total_estimate_seconds = sum(
-                convert_taskwarrior_estimate_to_seconds(task.get('estimate', ''))
-                for task in pending_tasks
-            )
-        else:
-            total_estimate_seconds = DEFAULT_ESTIMATE_SECONDS * pending_count
-        
-        # Get tasks completed today
-        completed_today = 0
-        try:
-            # Query for tasks completed today
-            completed_result = run_task_command(['completed', 'end:today'])
-            
-            if completed_result.returncode == 0 and completed_result.stdout.strip():
-                # Count actual task entries by looking for lines that start with " - " (completed task indicator)
-                output_lines = completed_result.stdout.strip().split('\n')
-                task_lines = [line for line in output_lines if line.strip().startswith('- ')]
-                completed_today = len(task_lines)
-        except Exception as e:
-            print(f"DEBUG: Error getting completed tasks: {e}")
-            completed_today = 0
-        
-        # Convert total seconds to human readable format
-        hours = total_estimate_seconds // 3600
-        minutes = (total_estimate_seconds % 3600) // 60
-        
-        if hours > 0:
-            time_estimate_display = f"{hours}h {minutes}m"
-        elif minutes > 0:
-            time_estimate_display = f"{minutes}m"
-        else:
-            time_estimate_display = "0m"
-        
-        # Capitalize first letter of report name for display
-        report_display = report_name.capitalize()
-        
-        return render_template('stats.html',
-                             report_name=report_display,
-                             pending_count=pending_count,
-                             completed_today=completed_today,
-                             time_estimate=time_estimate_display,
-                             current_report=report_name,
-                             report_invalid=report_invalid,
-                             requested_report_name=requested_report_name)
-        
-    except Exception as e:
-        error_msg = f"Error generating stats: {str(e)}"
-        print(f"DEBUG: {error_msg}")
-        return f"""
-        <html>
-        <head><title>OneTask - Stats Error</title></head>
-        <body style="font-family: Arial, sans-serif; margin: 40px; color: #333;">
-            <h1 style="color: #d32f2f;">Stats Error</h1>
-            <p>Unable to generate statistics.</p>
-            <p><a href="/">← Go back to OneTask</a></p>
-            <p style="color: #666; font-size: 12px;">Error: {error_msg}</p>
-        </body>
-        </html>
-        """, 500
+    """Deprecated standalone stats page — the stats summary now lives as a
+    header on /list (ON-62/B0). Redirect so old bookmarks/links keep working."""
+    report_name = request.args.get('report', default='next')
+    return redirect(url_for('show_task_list', report=report_name))
 
 @app.errorhandler(500)
 def internal_error(error):

@@ -572,9 +572,15 @@ class TestShowList:
 # ---------------------------------------------------------------------------
 
 class TestShowTaskList:
+    """/list is the combined stats + list screen (ON-62/B0)."""
+
     @patch('app.subprocess.run')
     def test_happy_path(self, mock_run, client):
-        mock_run.return_value = mock_result(stdout=json.dumps([SAMPLE_TASK]))
+        mock_run.side_effect = [
+            CONFIG_WITH_ESTIMATE_UDA,
+            mock_result(stdout=json.dumps([SAMPLE_TASK])),
+            mock_result(stdout='- Task A\n'),
+        ]
         response = client.get('/list')
         assert response.status_code == 200
         assert b'Test task' in response.data
@@ -582,20 +588,32 @@ class TestShowTaskList:
 
     @patch('app.subprocess.run')
     def test_empty_report_shows_placeholder(self, mock_run, client):
-        mock_run.return_value = mock_result(stdout='[]')
+        mock_run.side_effect = [
+            CONFIG_WITH_ESTIMATE_UDA,
+            mock_result(stdout='[]'),
+            mock_result(stdout=''),
+        ]
         response = client.get('/list')
         assert response.status_code == 200
         assert b'No tasks to display' in response.data
 
     @patch('app.subprocess.run')
     def test_custom_report_param(self, mock_run, client):
-        mock_run.return_value = mock_result(stdout=json.dumps([SAMPLE_TASK]))
+        mock_run.side_effect = [
+            CONFIG_WITH_ESTIMATE_UDA,
+            mock_result(stdout=json.dumps([SAMPLE_TASK])),
+            mock_result(stdout=''),
+        ]
         client.get('/list?report=focus')
-        assert mock_run.call_args[0][0] == task_args('export', 'focus')
+        assert mock_run.call_args_list[1][0][0] == task_args('export', 'focus')
 
     @patch('app.subprocess.run')
     def test_task_row_links_to_main_view(self, mock_run, client):
-        mock_run.return_value = mock_result(stdout=json.dumps([SAMPLE_TASK]))
+        mock_run.side_effect = [
+            CONFIG_WITH_ESTIMATE_UDA,
+            mock_result(stdout=json.dumps([SAMPLE_TASK])),
+            mock_result(stdout=''),
+        ]
         response = client.get('/list')
         assert f'/?report=next&task={SAMPLE_TASK["uuid"]}'.encode() in response.data
 
@@ -604,6 +622,7 @@ class TestShowTaskList:
         mock_run.side_effect = [
             CONFIG_WITHOUT_ESTIMATE_UDA,
             mock_result(stdout=json.dumps([SAMPLE_TASK])),
+            mock_result(stdout=''),
         ]
         response = client.get('/list')
         assert response.status_code == 200
@@ -614,11 +633,40 @@ class TestShowTaskList:
         mock_run.side_effect = [
             CONFIG_WITH_REPORTS,
             mock_result(stdout=json.dumps([SAMPLE_TASK])),
+            mock_result(stdout=''),
         ]
         response = client.get('/list?report=totallyBogusReportName')
         assert response.status_code == 200
         assert b'Report "totallyBogusReportName" not found' in response.data
-        assert mock_run.call_args[0][0] == task_args('export', 'next')
+        assert mock_run.call_args_list[1][0][0] == task_args('export', 'next')
+
+    @patch('app.subprocess.run')
+    def test_stats_header_reflects_pending_and_estimate(self, mock_run, client):
+        task = {**SAMPLE_TASK, 'estimate': '30m'}
+        mock_run.side_effect = [
+            CONFIG_WITH_ESTIMATE_UDA,
+            mock_result(stdout=json.dumps([task, task])),  # 2 x 30m = 1h
+            mock_result(stdout='- Task A\n- Task B\n'),    # 2 completed today
+        ]
+        response = client.get('/list')
+        assert response.status_code == 200
+        assert b'>2<' in response.data  # pending count
+        assert b'>1h<' in response.data  # estimate remaining
+        assert b'Done today' in response.data
+
+    @patch('app.subprocess.run')
+    def test_stats_header_uses_default_estimate_when_uda_not_configured(self, mock_run, client):
+        # ON-66/A2's per-task fallback flows straight into the header total —
+        # no separate branch needed here.
+        task = {**SAMPLE_TASK, 'estimate': ''}
+        mock_run.side_effect = [
+            CONFIG_WITHOUT_ESTIMATE_UDA,
+            mock_result(stdout=json.dumps([task, task])),  # 2 x 25m default = 50m
+            mock_result(stdout=''),
+        ]
+        response = client.get('/list')
+        assert response.status_code == 200
+        assert b'>50m<' in response.data
 
 
 # ---------------------------------------------------------------------------
@@ -969,111 +1017,17 @@ class TestRemoveTaskUrl:
 # ---------------------------------------------------------------------------
 
 class TestShowStats:
-    @patch('app.subprocess.run')
-    def test_happy_path(self, mock_run, client):
-        task = {**SAMPLE_TASK, 'estimate': '30m'}
-        mock_run.side_effect = [
-            CONFIG_WITH_ESTIMATE_UDA,                     # get_resolved_config
-            mock_result(stdout=json.dumps([task])),      # get_tasks_from_report
-            mock_result(stdout='- Task A\n- Task B\n'),  # completed today
-        ]
-        response = client.get('/stats')
-        assert response.status_code == 200
-        assert b'30m' in response.data
-        assert b'Tasks completed today: 2' in response.data
+    """/stats is now a redirect to the combined /list view (ON-62/B0)."""
 
-    @patch('app.subprocess.run')
-    def test_time_display_hours_and_minutes(self, mock_run, client):
-        task = {**SAMPLE_TASK, 'estimate': '75m'}
-        mock_run.side_effect = [
-            CONFIG_WITH_ESTIMATE_UDA,
-            mock_result(stdout=json.dumps([task, task])),  # 2 × 75m = 2h 30m
-            mock_result(stdout=''),
-        ]
+    def test_redirects_to_list(self, client):
         response = client.get('/stats')
-        assert response.status_code == 200
-        assert b'2h 30m' in response.data
+        assert response.status_code == 302
+        assert response.headers['Location'] == '/list?report=next'
 
-    @patch('app.subprocess.run')
-    def test_time_display_minutes_only(self, mock_run, client):
-        task = {**SAMPLE_TASK, 'estimate': '45m'}
-        mock_run.side_effect = [
-            CONFIG_WITH_ESTIMATE_UDA,
-            mock_result(stdout=json.dumps([task])),
-            mock_result(stdout=''),
-        ]
-        response = client.get('/stats')
-        assert response.status_code == 200
-        assert b'45m' in response.data
-
-    @patch('app.subprocess.run')
-    def test_time_display_zero_when_no_estimates(self, mock_run, client):
-        task = {**SAMPLE_TASK, 'estimate': ''}
-        mock_run.side_effect = [
-            CONFIG_WITH_ESTIMATE_UDA,
-            mock_result(stdout=json.dumps([task])),
-            mock_result(stdout=''),
-        ]
-        response = client.get('/stats')
-        assert response.status_code == 200
-        assert b'0m' in response.data
-
-    @patch('app.subprocess.run')
-    def test_falls_back_to_default_estimate_when_uda_not_configured(self, mock_run, client):
-        # ON-66/A2: no uda.estimate at all (stock TaskWarrior) -> default
-        # Pomodoro length per pending task, not a misleading 0m total.
-        task = {**SAMPLE_TASK, 'estimate': ''}
-        mock_run.side_effect = [
-            CONFIG_WITHOUT_ESTIMATE_UDA,
-            mock_result(stdout=json.dumps([task, task])),  # 2 tasks x 25m default
-            mock_result(stdout=''),
-        ]
-        response = client.get('/stats')
-        assert response.status_code == 200
-        assert b'50m' in response.data
-
-    @patch('app.subprocess.run')
-    def test_custom_report_param(self, mock_run, client):
-        mock_run.side_effect = [
-            CONFIG_WITH_ESTIMATE_UDA,
-            mock_result(stdout=json.dumps([SAMPLE_TASK])),
-            mock_result(stdout=''),
-        ]
+    def test_redirect_preserves_report_param(self, client):
         response = client.get('/stats?report=focus')
-        assert response.status_code == 200
-        assert b'Focus' in response.data
-
-    @patch('app.subprocess.run')
-    def test_completed_today_fails_gracefully(self, mock_run, client):
-        mock_run.side_effect = [
-            CONFIG_WITH_ESTIMATE_UDA,
-            mock_result(stdout=json.dumps([SAMPLE_TASK])),
-            Exception('completed query failed'),
-        ]
-        response = client.get('/stats')
-        assert response.status_code == 200
-        assert b'Tasks completed today: 0' in response.data
-
-    @patch('app.subprocess.run')
-    def test_unknown_report_falls_back_to_next_with_notice(self, mock_run, client):
-        mock_run.side_effect = [
-            CONFIG_WITH_REPORTS,
-            mock_result(stdout=json.dumps([SAMPLE_TASK])),
-            mock_result(stdout=''),
-        ]
-        response = client.get('/stats?report=totallyBogusReportName')
-        assert response.status_code == 200
-        assert b'Report "totallyBogusReportName" not found' in response.data
-        # "Next Report Stats" heading confirms the effective report is 'next'
-        assert b'Next Report Stats' in response.data
-
-    @patch('app.subprocess.run')
-    def test_outer_exception_returns_error_page(self, mock_run, client):
-        # get_tasks_from_report re-raises json.JSONDecodeError, reaching the outer handler
-        mock_run.return_value = mock_result(stdout='not valid json')
-        response = client.get('/stats')
-        assert response.status_code == 500
-        assert b'Stats Error' in response.data
+        assert response.status_code == 302
+        assert response.headers['Location'] == '/list?report=focus'
 
 
 # ---------------------------------------------------------------------------

@@ -9,7 +9,6 @@
 </head>
 
 <body>
-    <a href="/stats{{ '?report=' + request.args.get('report', 'next') }}" class="stats-link">Stats</a>
     <a href="/list{{ '?report=' + request.args.get('report', 'next') }}" class="list-link">List</a>
     {% if report_invalid %}
     <div class="report-fallback-notice">

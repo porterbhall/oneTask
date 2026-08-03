@@ -11,24 +11,10 @@ body {
     position: relative;
 }
 
-.stats-link {
-    position: absolute;
-    top: 20px;
-    left: 20px;
-    color: #888;
-    text-decoration: none;
-    font-size: 14px;
-    transition: color 0.2s ease;
-}
-
-.stats-link:hover {
-    color: #c2c2c2;
-}
-
 .list-link {
     position: absolute;
     top: 20px;
-    right: 20px;
+    left: 20px;
     color: #888;
     text-decoration: none;
     font-size: 14px;
@@ -229,40 +215,6 @@ body {
     text-align: center;
     margin-bottom: 20px;
     color: #5d5d5d;
-}
-
-.stats-container {
-    max-width: 600px;
-    margin: 0 auto;
-    padding: 40px 20px;
-}
-
-.stats-container h1 {
-    color: #e6d7d7;
-    margin-bottom: 30px;
-    font-size: 32px;
-}
-
-.stats-content {
-    margin-bottom: 30px;
-}
-
-.stats-content p {
-    margin: 15px 0;
-    font-size: 16px;
-    color: #c2c2c2;
-    line-height: 1.5;
-}
-
-.stats-actions a {
-    color: #888;
-    text-decoration: none;
-    font-size: 14px;
-    transition: color 0.2s ease;
-}
-
-.stats-actions a:hover {
-    color: #c2c2c2;
 }
 
 /* Task Details Section Styles */
@@ -688,6 +640,32 @@ body {
     margin-bottom: 30px;
     font-size: 32px;
     text-align: center;
+}
+
+.list-stats-header {
+    display: flex;
+    justify-content: space-around;
+    gap: 10px;
+    margin-bottom: 30px;
+    padding: 16px 10px;
+    background-color: #363636;
+    border-radius: 5px;
+}
+
+.list-stat-item {
+    text-align: center;
+}
+
+.list-stat-value {
+    font-size: 22px;
+    font-weight: bold;
+    color: #e6d7d7;
+}
+
+.list-stat-label {
+    margin-top: 4px;
+    font-size: 12px;
+    color: #888;
 }
 
 .list-actions {

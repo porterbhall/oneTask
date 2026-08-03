@@ -17,6 +17,21 @@
         </div>
         {% endif %}
 
+        <div class="list-stats-header">
+            <div class="list-stat-item">
+                <div class="list-stat-value">{{ pending_count }}</div>
+                <div class="list-stat-label">Pending</div>
+            </div>
+            <div class="list-stat-item">
+                <div class="list-stat-value">{{ completed_today }}</div>
+                <div class="list-stat-label">Done today</div>
+            </div>
+            <div class="list-stat-item">
+                <div class="list-stat-value">{{ estimate_display }}</div>
+                <div class="list-stat-label">Est left</div>
+            </div>
+        </div>
+
         {% if tasks %}
             {% for task in tasks %}
             <a href="/?report={{ report_name }}&task={{ task.uuid }}" class="list-task-row">
