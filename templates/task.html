@@ -94,11 +94,7 @@
             <h4>Priority</h4>
             <div id="priority-display"></div>
             <div class="priority-edit-form" id="priority-edit-form" style="display: none;">
-                <select id="priority-select" class="priority-select">
-                    <option value="1">1 (High)</option>
-                    <option value="2">2 (Medium)</option>
-                    <option value="3">3 (Low)</option>
-                </select>
+                <select id="priority-select" class="priority-select"></select>
                 <div class="priority-form-buttons">
                     <button id="save-priority">Save</button>
                     <button id="cancel-priority">Cancel</button>
@@ -147,6 +143,7 @@
     var task_tags = {{ task_tags | tojson }};
     var task_names = {{ task_names | tojson }};
     var task_priorities = {{ task_priorities | tojson }};
+    var priorityValues = {{ priority_values | tojson }};
     var remainingTime = moment.duration(remainingSeconds[currentTaskIndex], 'seconds');
     var countdownBox = document.querySelector('.countdown-box');
     var countdownInterval;
@@ -1099,7 +1096,7 @@ function updateCountdown() {
         .then(data => {
             if (data.status === 'success') {
                 task_names[currentTaskIndex] = newDescription;
-                formatted_tasks[currentTaskIndex] = task_priorities[currentTaskIndex] + ': ' + newDescription;
+                formatted_tasks[currentTaskIndex] = formatTaskTitle(task_priorities[currentTaskIndex], newDescription);
                 document.querySelector('.task-name').innerHTML = formatted_tasks[currentTaskIndex];
                 exitTitleEditMode();
             } else {
@@ -1112,29 +1109,62 @@ function updateCountdown() {
         });
     }
 
-    // Priority edit functions (ON-29)
+    // Priority edit functions (ON-29, updated for ON-67/A3 to read the
+    // user's actual priority scheme instead of a hardcoded 1/2/3)
+
+    // High/Medium/Low descriptors only make sense for a 3-level scheme
+    // (covers both native H/M/L and Porter's custom 1/2/3) — anything else
+    // just shows the raw configured value.
+    function priorityLabel(value) {
+        const index = priorityValues.indexOf(value);
+        if (priorityValues.length === 3 && index !== -1) {
+            const descriptors = ['High', 'Medium', 'Low'];
+            return value + ' (' + descriptors[index] + ')';
+        }
+        return String(value);
+    }
+
+    function formatTaskTitle(priority, name) {
+        return priority ? (priority + ': ' + name) : name;
+    }
+
+    function populatePriorityOptions() {
+        const select = document.getElementById('priority-select');
+        select.innerHTML = '';
+        priorityValues.forEach(function(value) {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = priorityLabel(value);
+            select.appendChild(option);
+        });
+    }
+
     function updatePriorityDisplay() {
         const priorityDisplay = document.getElementById('priority-display');
         const priority = task_priorities[currentTaskIndex];
-        const labels = {1: '1 (High)', 2: '2 (Medium)', 3: '3 (Low)'};
 
         priorityDisplay.innerHTML = '';
 
         const priorityItem = document.createElement('div');
         priorityItem.className = 'priority-item';
-        priorityItem.textContent = labels[priority] || String(priority);
-
-        const editBtn = document.createElement('button');
-        editBtn.className = 'url-action-btn';
-        editBtn.textContent = 'Edit';
-        editBtn.onclick = showPriorityForm;
-
+        priorityItem.textContent = priority ? priorityLabel(priority) : 'No priority set';
         priorityDisplay.appendChild(priorityItem);
-        priorityDisplay.appendChild(editBtn);
+
+        // Unknown/empty scheme (no priority_values resolved) — degrade to
+        // read-only rather than offering a form that can't validate (ON-67/A3).
+        if (priorityValues.length > 0) {
+            const editBtn = document.createElement('button');
+            editBtn.className = 'url-action-btn';
+            editBtn.textContent = 'Edit';
+            editBtn.onclick = showPriorityForm;
+            priorityDisplay.appendChild(editBtn);
+        }
     }
 
     function showPriorityForm() {
-        document.getElementById('priority-select').value = task_priorities[currentTaskIndex];
+        if (priorityValues.length === 0) return;
+        const current = task_priorities[currentTaskIndex];
+        document.getElementById('priority-select').value = priorityValues.includes(current) ? current : priorityValues[0];
         document.getElementById('priority-edit-form').style.display = 'block';
     }
 
@@ -1143,7 +1173,7 @@ function updateCountdown() {
     }
 
     function saveTaskPriority() {
-        const newPriority = parseInt(document.getElementById('priority-select').value);
+        const newPriority = document.getElementById('priority-select').value;
         const taskId = task_id[currentTaskIndex];
         fetch(`/task/${taskId}/priority`, {
             method: 'POST',
@@ -1154,7 +1184,7 @@ function updateCountdown() {
         .then(data => {
             if (data.status === 'success') {
                 task_priorities[currentTaskIndex] = newPriority;
-                formatted_tasks[currentTaskIndex] = newPriority + ': ' + task_names[currentTaskIndex];
+                formatted_tasks[currentTaskIndex] = formatTaskTitle(newPriority, task_names[currentTaskIndex]);
                 document.querySelector('.task-name').innerHTML = formatted_tasks[currentTaskIndex];
                 hidePriorityForm();
                 updatePriorityDisplay();
@@ -1245,6 +1275,7 @@ function updateCountdown() {
     }
 
     // Start the countdown
+    populatePriorityOptions();
     updateCountdown();
     updateLink();
     updateTaskId();

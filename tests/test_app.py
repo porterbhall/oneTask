@@ -101,9 +101,12 @@ class TestConvertEstimateToSeconds:
 
 class TestFormatTaskForDisplay:
     def test_full_task(self):
+        # SAMPLE_TASK's priority ('2') isn't in the default H/M/L scheme, so
+        # it's still shown as-is (never coerced/guessed) but ranks unknown.
         result = format_task_for_display(SAMPLE_TASK)
         assert result['name'] == 'Test task'
-        assert result['priority'] == 2
+        assert result['priority'] == '2'
+        assert result['priority_rank'] == float('inf')
         assert result['uuid'] == SAMPLE_TASK['uuid']
         assert result['task_id'] == SAMPLE_TASK['uuid']
         assert result['short_id'] == 'abc12345'
@@ -112,9 +115,18 @@ class TestFormatTaskForDisplay:
         assert result['tags'] == []
         assert result['formatted_task'] == '2: Test task'
 
-    def test_missing_priority_defaults_to_2(self):
+    def test_priority_resolved_against_actual_scheme(self):
+        # ON-67/A3: with Porter's real scheme passed in, '2' ranks correctly.
+        result = format_task_for_display(SAMPLE_TASK, priority_values=['1', '2', '3'])
+        assert result['priority'] == '2'
+        assert result['priority_rank'] == 1
+
+    def test_missing_priority_has_no_value_or_rank(self):
         task = {**SAMPLE_TASK, 'priority': ''}
-        assert format_task_for_display(task)['priority'] == 2
+        result = format_task_for_display(task)
+        assert result['priority'] == ''
+        assert result['priority_rank'] == float('inf')
+        assert result['formatted_task'] == 'Test task'
 
     def test_missing_uuid_gives_unknown_short_id(self):
         task = {**SAMPLE_TASK, 'uuid': ''}
@@ -153,11 +165,11 @@ class TestFormatTaskForDisplay:
 
 class TestSortingKey:
     def test_returns_correct_tuple(self):
-        task = {'priority': 1, 'total_seconds': 300, 'name': 'Do thing'}
-        assert sorting_key(task) == (1, 300, 'Do thing')
+        task = {'priority_rank': 0, 'total_seconds': 300, 'name': 'Do thing'}
+        assert sorting_key(task) == (0, 300, 'Do thing')
 
     def test_missing_priority_sorts_to_end(self):
-        task = {'priority': None, 'total_seconds': 0, 'name': 'Thing'}
+        task = {'priority_rank': float('inf'), 'total_seconds': 0, 'name': 'Thing'}
         assert sorting_key(task)[0] == float('inf')
 
 
@@ -281,6 +293,54 @@ class TestEstimateUdaDefined:
         assert estimate_uda_defined({}) is False
 
 
+class TestGetPriorityValues:
+    def test_reads_custom_scheme_from_config(self):
+        from app import get_priority_values
+        config = {'uda.priority.values': '1,2,3'}
+        assert get_priority_values(config) == ['1', '2', '3']
+
+    def test_falls_back_to_native_hml_when_key_absent(self):
+        from app import get_priority_values, DEFAULT_PRIORITY_VALUES
+        assert get_priority_values({}) == list(DEFAULT_PRIORITY_VALUES)
+
+    def test_reads_native_scheme_explicitly(self):
+        from app import get_priority_values
+        config = {'uda.priority.values': 'H,M,L'}
+        assert get_priority_values(config) == ['H', 'M', 'L']
+
+    def test_strips_trailing_empty_entry(self):
+        # TaskWarrior's own stock resolved config includes a trailing comma
+        # (an explicit blank/none option) — filter it out of the value list.
+        from app import get_priority_values
+        config = {'uda.priority.values': 'H,M,L,'}
+        assert get_priority_values(config) == ['H', 'M', 'L']
+
+    def test_empty_after_filtering_returns_empty_list(self):
+        # Key present but no usable values — signals "unknown scheme, degrade"
+        # to callers rather than silently defaulting.
+        from app import get_priority_values
+        config = {'uda.priority.values': ',,,'}
+        assert get_priority_values(config) == []
+
+
+class TestPriorityRank:
+    def test_ranks_by_position_in_scheme(self):
+        from app import priority_rank
+        values = ['1', '2', '3']
+        assert priority_rank('1', values) == 0
+        assert priority_rank('2', values) == 1
+        assert priority_rank('3', values) == 2
+
+    def test_unset_value_sorts_last(self):
+        from app import priority_rank
+        assert priority_rank('', ['H', 'M', 'L']) == float('inf')
+        assert priority_rank(None, ['H', 'M', 'L']) == float('inf')
+
+    def test_unrecognized_value_sorts_last(self):
+        from app import priority_rank
+        assert priority_rank('Z', ['H', 'M', 'L']) == float('inf')
+
+
 # ---------------------------------------------------------------------------
 # Route tests: GET /
 # ---------------------------------------------------------------------------
@@ -354,6 +414,44 @@ class TestShowList:
         assert response.status_code == 200
         assert b'var estimateIsDefault = [true]' in response.data
         assert b'No estimate configured' in response.data
+
+    @patch('app.subprocess.run')
+    def test_renders_custom_priority_scheme(self, mock_run, client):
+        # ON-67/A3: Porter's real config (uda.priority.values=1,2,3) must be
+        # what the page's priority editor is populated from, not a hardcoded list.
+        task = {**SAMPLE_TASK, 'priority': '1'}
+        mock_run.side_effect = [
+            mock_result(stdout='uda.priority.values=1,2,3\n'),
+            mock_result(stdout=json.dumps([task])),
+        ]
+        response = client.get('/')
+        assert response.status_code == 200
+        assert b'var priorityValues = ["1", "2", "3"]' in response.data
+        assert b'1: Test task' in response.data
+
+    @patch('app.subprocess.run')
+    def test_renders_native_priority_scheme_when_not_customized(self, mock_run, client):
+        # Stock TaskWarrior — no uda.priority.values override -> native H/M/L.
+        task = {**SAMPLE_TASK, 'priority': 'H'}
+        mock_run.side_effect = [
+            mock_result(stdout='dateformat=Y-M-D\n'),
+            mock_result(stdout=json.dumps([task])),
+        ]
+        response = client.get('/')
+        assert response.status_code == 200
+        assert b'var priorityValues = ["H", "M", "L"]' in response.data
+        assert b'H: Test task' in response.data
+
+    @patch('app.subprocess.run')
+    def test_unset_priority_shows_no_prefix(self, mock_run, client):
+        task = {**SAMPLE_TASK, 'priority': ''}
+        mock_run.side_effect = [
+            mock_result(stdout='uda.priority.values=1,2,3\n'),
+            mock_result(stdout=json.dumps([task])),
+        ]
+        response = client.get('/')
+        assert response.status_code == 200
+        assert b'var formatted_tasks = ["Test task"]' in response.data
 
 
 # ---------------------------------------------------------------------------
@@ -879,33 +977,67 @@ class TestSetTaskDescription:
 
 class TestSetTaskPriority:
     @patch('app.subprocess.run')
-    def test_happy_path(self, mock_run, client):
-        mock_run.return_value = mock_result(stdout='Modified 1 task.')
-        response = client.post('/task/abc12345/priority', json={'priority': 1})
+    def test_happy_path_custom_scheme(self, mock_run, client):
+        mock_run.side_effect = [
+            mock_result(stdout='uda.priority.values=1,2,3\n'),  # get_resolved_config
+            mock_result(stdout='Modified 1 task.'),             # modify
+        ]
+        response = client.post('/task/abc12345/priority', json={'priority': '1'})
         assert response.status_code == 200
         assert response.get_json()['status'] == 'success'
         assert mock_run.call_args[0][0] == task_args('abc12345', 'modify', 'priority:1')
+
+    @patch('app.subprocess.run')
+    def test_happy_path_native_scheme(self, mock_run, client):
+        mock_run.side_effect = [
+            mock_result(stdout='dateformat=Y-M-D\n'),  # no uda.priority.values -> native H/M/L
+            mock_result(stdout='Modified 1 task.'),
+        ]
+        response = client.post('/task/abc12345/priority', json={'priority': 'H'})
+        assert response.status_code == 200
+        assert mock_run.call_args[0][0] == task_args('abc12345', 'modify', 'priority:H')
 
     def test_missing_priority_returns_400(self, client):
         response = client.post('/task/abc12345/priority', json={})
         assert response.status_code == 400
 
-    def test_invalid_priority_value_returns_400(self, client):
-        response = client.post('/task/abc12345/priority', json={'priority': 5})
-        assert response.status_code == 400
-
-    def test_non_numeric_priority_returns_400(self, client):
-        response = client.post('/task/abc12345/priority', json={'priority': 'high'})
+    @patch('app.subprocess.run')
+    def test_value_not_in_configured_scheme_returns_400(self, mock_run, client):
+        mock_run.return_value = mock_result(stdout='uda.priority.values=1,2,3\n')
+        response = client.post('/task/abc12345/priority', json={'priority': '5'})
         assert response.status_code == 400
 
     @patch('app.subprocess.run')
+    def test_native_scheme_rejects_legacy_numeric_value(self, mock_run, client):
+        # ON-67/A3: on stock TaskWarrior (H/M/L), a blind '1' must be rejected
+        # instead of silently accepted, which is exactly the bug this story fixes.
+        mock_run.return_value = mock_result(stdout='dateformat=Y-M-D\n')
+        response = client.post('/task/abc12345/priority', json={'priority': '1'})
+        assert response.status_code == 400
+
+    @patch('app.subprocess.run')
+    def test_unknown_scheme_returns_400_without_firing_modify(self, mock_run, client):
+        # Degrade case from the AC: scheme resolves to no usable values ->
+        # reject cleanly, and never attempt the destructive modify call.
+        mock_run.return_value = mock_result(stdout='uda.priority.values=,,,\n')
+        response = client.post('/task/abc12345/priority', json={'priority': '1'})
+        assert response.status_code == 400
+        assert mock_run.call_count == 1
+
+    @patch('app.subprocess.run')
     def test_subprocess_failure_returns_500(self, mock_run, client):
-        mock_run.return_value = mock_result(returncode=1, stderr='error')
-        response = client.post('/task/abc12345/priority', json={'priority': 2})
+        mock_run.side_effect = [
+            mock_result(stdout='uda.priority.values=1,2,3\n'),
+            mock_result(returncode=1, stderr='error'),
+        ]
+        response = client.post('/task/abc12345/priority', json={'priority': '2'})
         assert response.status_code == 500
 
     @patch('app.subprocess.run')
     def test_subprocess_exception_returns_500(self, mock_run, client):
-        mock_run.side_effect = Exception('unexpected')
-        response = client.post('/task/abc12345/priority', json={'priority': 2})
+        mock_run.side_effect = [
+            mock_result(stdout='uda.priority.values=1,2,3\n'),
+            Exception('unexpected'),
+        ]
+        response = client.post('/task/abc12345/priority', json={'priority': '2'})
         assert response.status_code == 500

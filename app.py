@@ -96,15 +96,39 @@ def estimate_uda_defined(config):
     """Whether the `estimate` UDA is configured, per resolved TaskWarrior config (ON-66/A2)."""
     return any(key.startswith('uda.estimate.') for key in config)
 
-def format_task_for_display(task, estimate_configured=True):
+# Native TaskWarrior priority scheme, used when uda.priority.values isn't
+# customized (this is also literally what a stock install resolves to).
+DEFAULT_PRIORITY_VALUES = ('H', 'M', 'L')
+
+def get_priority_values(config):
+    """Ordered list of valid priority values (highest first), per resolved
+    config's `uda.priority.values`. Falls back to native H/M/L when the key
+    is entirely absent (matches TaskWarrior's own default). Returns an empty
+    list if the key resolves to no usable values — callers should treat that
+    as an unknown scheme and degrade rather than guess (ON-67/A3)."""
+    if 'uda.priority.values' not in config:
+        return list(DEFAULT_PRIORITY_VALUES)
+    return [v for v in config['uda.priority.values'].split(',') if v]
+
+def priority_rank(value, priority_values):
+    """Sort rank for a priority value within the given scheme; unset or
+    unrecognized values sort last."""
+    if not value:
+        return float('inf')
+    try:
+        return priority_values.index(value)
+    except ValueError:
+        return float('inf')
+
+def format_task_for_display(task, estimate_configured=True, priority_values=None):
     """Convert TaskWarrior task to Milkbox-compatible format"""
-    # Extract priority (TaskWarrior uses numeric priorities: 1, 2, 3)
-    priority = task.get('priority', '')
-    if priority:
-        # TaskWarrior priority is already numeric (1, 2, 3)
-        priority_num = int(priority)
-    else:
-        priority_num = 2  # Default priority
+    if priority_values is None:
+        priority_values = list(DEFAULT_PRIORITY_VALUES)
+
+    # Priority is whatever value TaskWarrior actually has for this task
+    # (native H/M/L, a custom numeric scheme, or unset) — never assumed
+    # to be a specific numeric scheme (ON-67/A3).
+    priority = task.get('priority') or ''
 
     # Get estimate and convert to seconds. If the estimate UDA isn't configured
     # at all, there's no per-task value to read, so fall back to a default
@@ -123,7 +147,8 @@ def format_task_for_display(task, estimate_configured=True):
     # Format the task for display
     formatted_task = {
         "name": task.get('description', 'No description'),
-        "priority": priority_num,
+        "priority": priority,
+        "priority_rank": priority_rank(priority, priority_values),
         "time_estimate": estimate,
         "task_id": task.get('uuid', ''),  # Use UUID as primary identifier
         "uuid": task.get('uuid', ''),
@@ -136,8 +161,11 @@ def format_task_for_display(task, estimate_configured=True):
         "tags": task.get('tags', [])
     }
 
-    # Format display name
-    formatted_task["formatted_task"] = f"{formatted_task['priority']}: {formatted_task['name']}"
+    # Format display name — omit the prefix entirely when priority is unset,
+    # rather than implying a priority the task doesn't actually have.
+    formatted_task["formatted_task"] = (
+        f"{priority}: {formatted_task['name']}" if priority else formatted_task['name']
+    )
 
     return formatted_task
 
@@ -191,8 +219,9 @@ def format_estimate_display(total_seconds):
     return f"{minutes}m"
 
 def sorting_key(task_details):
-    """Sort tasks by priority, then by time estimate, then by name"""
-    return (task_details["priority"] or float('inf'),
+    """Sort tasks by priority rank (within the actual configured scheme,
+    highest priority first), then by time estimate, then by name."""
+    return (task_details["priority_rank"],
             task_details["total_seconds"],
             task_details["name"])
 
@@ -207,16 +236,18 @@ def show_list():
     
     try:
         # Get tasks from TaskWarrior
-        estimate_configured = estimate_uda_defined(get_resolved_config())
+        config = get_resolved_config()
+        estimate_configured = estimate_uda_defined(config)
+        priority_values = get_priority_values(config)
         raw_tasks = get_tasks_from_report(report_name)
         print(f"DEBUG: Got {len(raw_tasks)} tasks from TaskWarrior")
 
         if not raw_tasks:
-            tasks = [{'name': 'No tasks to display', 'priority': 2, 'total_seconds': 0, 'estimate_is_default': False, 'formatted_task': 'No tasks to display', 'task_id': '', 'uuid': '', 'task_url': 'none', 'short_id': '', 'annotations': [], 'due_date': None, 'tags': []}]
+            tasks = [{'name': 'No tasks to display', 'priority': '', 'total_seconds': 0, 'estimate_is_default': False, 'formatted_task': 'No tasks to display', 'task_id': '', 'uuid': '', 'task_url': 'none', 'short_id': '', 'annotations': [], 'due_date': None, 'tags': []}]
         else:
             # Convert TaskWarrior tasks to Milkbox format
             # Note: raw_tasks are already sorted by urgency from get_tasks_from_report()
-            tasks = [format_task_for_display(task, estimate_configured) for task in raw_tasks]
+            tasks = [format_task_for_display(task, estimate_configured, priority_values) for task in raw_tasks]
 
         print(f"DEBUG: Formatted {len(tasks)} tasks for display")
 
@@ -246,6 +277,7 @@ def show_list():
                              task_urls=task_urls,
                              remaining_seconds=remaining_seconds,
                              estimate_is_default=estimate_is_default,
+                             priority_values=priority_values,
                              num_tasks=num_tasks,
                              task_id=task_ids,
                              taskseries_id=uuids,  # Use UUID as taskseries_id for compatibility
@@ -304,9 +336,11 @@ def show_task_list():
     report_name = request.args.get('report', default='next')
 
     try:
-        estimate_configured = estimate_uda_defined(get_resolved_config())
+        config = get_resolved_config()
+        estimate_configured = estimate_uda_defined(config)
+        priority_values = get_priority_values(config)
         raw_tasks = get_tasks_from_report(report_name)
-        tasks = [format_task_for_display(task, estimate_configured) for task in raw_tasks] if raw_tasks else []
+        tasks = [format_task_for_display(task, estimate_configured, priority_values) for task in raw_tasks] if raw_tasks else []
         for task in tasks:
             task['due_date_display'] = format_due_date_display(task['due_date'])
             task['estimate_display'] = format_estimate_display(task['total_seconds'])
@@ -829,17 +863,21 @@ def set_task_description(task_id):
 def set_task_priority(task_id):
     try:
         priority = request.json.get('priority')
-        if priority is None:
+        if priority is None or str(priority).strip() == '':
             return jsonify({'error': 'Priority required', 'status': 'error'}), 400
-        priority = int(priority)
-        if priority not in (1, 2, 3):
-            return jsonify({'error': 'Priority must be 1, 2, or 3', 'status': 'error'}), 400
+        priority = str(priority).strip()
+
+        # Validate against the user's actual scheme (ON-67/A3) — never fire a
+        # modify with a value that isn't one of the configured/native options.
+        priority_values = get_priority_values(get_resolved_config())
+        if priority not in priority_values:
+            valid = ', '.join(priority_values) if priority_values else '(none configured)'
+            return jsonify({'error': f'Priority must be one of: {valid}', 'status': 'error'}), 400
+
         result = run_task_command([str(task_id), 'modify', f'priority:{priority}'])
         if result.returncode != 0:
             return jsonify({'error': f'TaskWarrior modify failed: {result.stderr}', 'status': 'error'}), 500
         return jsonify({'status': 'success'})
-    except (ValueError, TypeError):
-        return jsonify({'error': 'Priority must be a number', 'status': 'error'}), 400
     except Exception as e:
         return jsonify({'error': str(e), 'status': 'error'}), 500
 
