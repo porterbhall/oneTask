@@ -88,7 +88,15 @@ def get_tasks_from_report(report_name='next'):
         print(f"Error getting tasks from {report_name}: {e}")
         return []
 
-def format_task_for_display(task):
+# Fallback Pomodoro length used when the estimate UDA isn't configured at all
+# (stock TaskWarrior has no `estimate` field, so there's nothing per-task to read).
+DEFAULT_ESTIMATE_SECONDS = 25 * 60
+
+def estimate_uda_defined(config):
+    """Whether the `estimate` UDA is configured, per resolved TaskWarrior config (ON-66/A2)."""
+    return any(key.startswith('uda.estimate.') for key in config)
+
+def format_task_for_display(task, estimate_configured=True):
     """Convert TaskWarrior task to Milkbox-compatible format"""
     # Extract priority (TaskWarrior uses numeric priorities: 1, 2, 3)
     priority = task.get('priority', '')
@@ -97,15 +105,21 @@ def format_task_for_display(task):
         priority_num = int(priority)
     else:
         priority_num = 2  # Default priority
-    
-    # Get estimate and convert to seconds
-    estimate = task.get('estimate', '')
-    total_seconds = convert_taskwarrior_estimate_to_seconds(estimate)
-    
+
+    # Get estimate and convert to seconds. If the estimate UDA isn't configured
+    # at all, there's no per-task value to read, so fall back to a default
+    # Pomodoro length rather than a dead 0-second timer.
+    if estimate_configured:
+        estimate = task.get('estimate', '')
+        total_seconds = convert_taskwarrior_estimate_to_seconds(estimate)
+    else:
+        estimate = ''
+        total_seconds = DEFAULT_ESTIMATE_SECONDS
+
     # Create short task identifier from UUID (first 8 characters)
     uuid = task.get('uuid', '')
     short_id = uuid[:8] if uuid else 'unknown'
-    
+
     # Format the task for display
     formatted_task = {
         "name": task.get('description', 'No description'),
@@ -114,16 +128,17 @@ def format_task_for_display(task):
         "task_id": task.get('uuid', ''),  # Use UUID as primary identifier
         "uuid": task.get('uuid', ''),
         "total_seconds": total_seconds,
+        "estimate_is_default": not estimate_configured,
         "task_url": task.get('url', 'none'),
         "short_id": short_id,
         "annotations": task.get('annotations', []),
         "due_date": task.get('due', None),
         "tags": task.get('tags', [])
     }
-    
+
     # Format display name
     formatted_task["formatted_task"] = f"{formatted_task['priority']}: {formatted_task['name']}"
-    
+
     return formatted_task
 
 def convert_taskwarrior_estimate_to_seconds(estimate):
@@ -192,24 +207,26 @@ def show_list():
     
     try:
         # Get tasks from TaskWarrior
+        estimate_configured = estimate_uda_defined(get_resolved_config())
         raw_tasks = get_tasks_from_report(report_name)
         print(f"DEBUG: Got {len(raw_tasks)} tasks from TaskWarrior")
-        
+
         if not raw_tasks:
-            tasks = [{'name': 'No tasks to display', 'priority': 2, 'total_seconds': 0, 'formatted_task': 'No tasks to display', 'task_id': '', 'uuid': '', 'task_url': 'none', 'short_id': '', 'annotations': [], 'due_date': None, 'tags': []}]
+            tasks = [{'name': 'No tasks to display', 'priority': 2, 'total_seconds': 0, 'estimate_is_default': False, 'formatted_task': 'No tasks to display', 'task_id': '', 'uuid': '', 'task_url': 'none', 'short_id': '', 'annotations': [], 'due_date': None, 'tags': []}]
         else:
             # Convert TaskWarrior tasks to Milkbox format
             # Note: raw_tasks are already sorted by urgency from get_tasks_from_report()
-            tasks = [format_task_for_display(task) for task in raw_tasks]
-        
+            tasks = [format_task_for_display(task, estimate_configured) for task in raw_tasks]
+
         print(f"DEBUG: Formatted {len(tasks)} tasks for display")
-        
+
         # Prepare data for template (matching Milkbox structure)
         task_ids = [task["task_id"] for task in tasks]
         uuids = [task["uuid"] for task in tasks]
         formatted_tasks = [task["formatted_task"] for task in tasks]
         task_urls = [task["task_url"] for task in tasks]
         remaining_seconds = [task["total_seconds"] for task in tasks]
+        estimate_is_default = [task["estimate_is_default"] for task in tasks]
         short_ids = [task["short_id"] for task in tasks]
         task_annotations = [task["annotations"] for task in tasks]
         task_due_dates = [task["due_date"] for task in tasks]
@@ -228,6 +245,7 @@ def show_list():
                              formatted_tasks=formatted_tasks,
                              task_urls=task_urls,
                              remaining_seconds=remaining_seconds,
+                             estimate_is_default=estimate_is_default,
                              num_tasks=num_tasks,
                              task_id=task_ids,
                              taskseries_id=uuids,  # Use UUID as taskseries_id for compatibility
@@ -286,8 +304,9 @@ def show_task_list():
     report_name = request.args.get('report', default='next')
 
     try:
+        estimate_configured = estimate_uda_defined(get_resolved_config())
         raw_tasks = get_tasks_from_report(report_name)
-        tasks = [format_task_for_display(task) for task in raw_tasks] if raw_tasks else []
+        tasks = [format_task_for_display(task, estimate_configured) for task in raw_tasks] if raw_tasks else []
         for task in tasks:
             task['due_date_display'] = format_due_date_display(task['due_date'])
             task['estimate_display'] = format_estimate_display(task['total_seconds'])
@@ -441,15 +460,23 @@ def show_stats():
     print(f"DEBUG: Showing stats for report: {report_name}")
     
     try:
+        # If the estimate UDA isn't configured, there's nothing per-task to
+        # read, so fall back to the same default-per-task total the timer
+        # uses (ON-66/A2).
+        estimate_configured = estimate_uda_defined(get_resolved_config())
+
         # Get current pending tasks from the report
         pending_tasks = get_tasks_from_report(report_name)
         pending_count = len(pending_tasks)
-        
+
         # Calculate sum of time estimates for pending tasks
-        total_estimate_seconds = sum(
-            convert_taskwarrior_estimate_to_seconds(task.get('estimate', ''))
-            for task in pending_tasks
-        )
+        if estimate_configured:
+            total_estimate_seconds = sum(
+                convert_taskwarrior_estimate_to_seconds(task.get('estimate', ''))
+                for task in pending_tasks
+            )
+        else:
+            total_estimate_seconds = DEFAULT_ESTIMATE_SECONDS * pending_count
         
         # Get tasks completed today
         completed_today = 0

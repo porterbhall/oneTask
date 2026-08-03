@@ -26,6 +26,9 @@
     </div>
     <div id="countdown" class="countdown-box" onclick="toggleTimer()">
     </div>
+    <div id="estimate-fallback-notice" class="estimate-fallback-notice" style="display: none;">
+        No estimate configured — using a default 25m timer
+    </div>
     <div class="actions">
         <button onclick="goToPreviousTask()">
             << Previous
@@ -132,6 +135,7 @@
     var taskUrl = {{ task_urls | tojson }}
     var numTasks = {{ num_tasks }}; // Total number of tasks
     var remainingSeconds = {{ remaining_seconds | tojson }};
+    var estimateIsDefault = {{ estimate_is_default | tojson }};
     var formatted_tasks = {{ formatted_tasks | tojson }};
     var task_id = {{ task_id | tojson }};
     var taskseries_id = {{ taskseries_id | tojson }};
@@ -179,6 +183,12 @@
     function updateTaskId() {
         var taskIdElement = document.getElementById('current-task-id');
         taskIdElement.textContent = short_ids[currentTaskIndex];
+    }
+
+    // Show/hide the "using default estimate" notice (ON-66/A2)
+    function updateEstimateNotice() {
+        var notice = document.getElementById('estimate-fallback-notice');
+        notice.style.display = estimateIsDefault[currentTaskIndex] ? 'block' : 'none';
     }
 
     // Function to copy task ID to clipboard
@@ -1220,6 +1230,7 @@ function updateCountdown() {
         restoreStyles();
         updateLink();
         updateTaskId();
+        updateEstimateNotice();
         if (taskDetailsVisible) {
             updateTaskDetails();
         }
@@ -1237,6 +1248,7 @@ function updateCountdown() {
     updateCountdown();
     updateLink();
     updateTaskId();
+    updateEstimateNotice();
     // Schedule the next update in 1 second
     countdownInterval = setInterval(updateCountdown, 1000); 
     </script>

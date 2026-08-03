@@ -19,7 +19,7 @@
                 <div class="list-task-meta">
                     {%- if task.due_date_display %}Due: {{ task.due_date_display }}{% endif -%}
                     {%- if task.due_date_display and task.estimate_display %} &middot; {% endif -%}
-                    {%- if task.estimate_display %}{{ task.estimate_display }} estimated{% endif -%}
+                    {%- if task.estimate_display %}{{ task.estimate_display }} estimated{% if task.estimate_is_default %} (default){% endif %}{% endif -%}
                 </div>
                 {% endif %}
             </a>

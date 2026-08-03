@@ -41,6 +41,10 @@ def task_args(*args):
     return ['task'] + RC_OVERRIDES + list(args)
 
 
+CONFIG_WITH_ESTIMATE_UDA = mock_result(stdout='uda.estimate.type=duration\nuda.estimate.label=Est\n')
+CONFIG_WITHOUT_ESTIMATE_UDA = mock_result(stdout='dateformat=Y-M-D\n')
+
+
 SAMPLE_TASK = {
     'uuid': 'abc12345-0000-0000-0000-000000000001',
     'description': 'Test task',
@@ -128,6 +132,19 @@ class TestFormatTaskForDisplay:
         annotations = [{'entry': '20250101T000000Z', 'description': 'A note'}]
         task = {**SAMPLE_TASK, 'annotations': annotations}
         assert format_task_for_display(task)['annotations'] == annotations
+
+    def test_estimate_configured_defaults_true_and_uses_task_value(self):
+        result = format_task_for_display(SAMPLE_TASK)
+        assert result['estimate_is_default'] is False
+        assert result['total_seconds'] == 1800
+
+    def test_estimate_not_configured_falls_back_to_default(self):
+        from app import DEFAULT_ESTIMATE_SECONDS
+        # Even a task with its own 'estimate' value is ignored once the UDA
+        # itself isn't configured — stock TaskWarrior wouldn't have set it.
+        result = format_task_for_display(SAMPLE_TASK, estimate_configured=False)
+        assert result['estimate_is_default'] is True
+        assert result['total_seconds'] == DEFAULT_ESTIMATE_SECONDS
 
 
 # ---------------------------------------------------------------------------
@@ -248,6 +265,22 @@ class TestGetResolvedConfig:
         assert inspect.signature(get_resolved_config).parameters == {}
 
 
+class TestEstimateUdaDefined:
+    def test_true_when_uda_estimate_keys_present(self):
+        from app import estimate_uda_defined
+        config = {'uda.estimate.type': 'duration', 'uda.estimate.label': 'Est'}
+        assert estimate_uda_defined(config) is True
+
+    def test_false_when_absent(self):
+        from app import estimate_uda_defined
+        config = {'dateformat': 'Y-M-D', 'uda.priority.values': 'H,M,L'}
+        assert estimate_uda_defined(config) is False
+
+    def test_false_for_empty_config(self):
+        from app import estimate_uda_defined
+        assert estimate_uda_defined({}) is False
+
+
 # ---------------------------------------------------------------------------
 # Route tests: GET /
 # ---------------------------------------------------------------------------
@@ -299,6 +332,29 @@ class TestShowList:
         assert response.status_code == 200
         assert b'id="current-task-id">abc12345<' in response.data
 
+    @patch('app.subprocess.run')
+    def test_default_estimate_notice_hidden_when_uda_configured(self, mock_run, client):
+        mock_run.side_effect = [
+            CONFIG_WITH_ESTIMATE_UDA,
+            mock_result(stdout=json.dumps([SAMPLE_TASK])),
+        ]
+        response = client.get('/')
+        assert response.status_code == 200
+        assert b'var estimateIsDefault = [false]' in response.data
+
+    @patch('app.subprocess.run')
+    def test_default_estimate_notice_shown_when_uda_not_configured(self, mock_run, client):
+        # ON-66/A2: stock TaskWarrior has no `estimate` UDA at all — surface the
+        # fallback state instead of a dead/empty timer.
+        mock_run.side_effect = [
+            CONFIG_WITHOUT_ESTIMATE_UDA,
+            mock_result(stdout=json.dumps([SAMPLE_TASK])),
+        ]
+        response = client.get('/')
+        assert response.status_code == 200
+        assert b'var estimateIsDefault = [true]' in response.data
+        assert b'No estimate configured' in response.data
+
 
 # ---------------------------------------------------------------------------
 # Route tests: GET /list
@@ -331,6 +387,16 @@ class TestShowTaskList:
         mock_run.return_value = mock_result(stdout=json.dumps([SAMPLE_TASK]))
         response = client.get('/list')
         assert f'/?report=next&task={SAMPLE_TASK["uuid"]}'.encode() in response.data
+
+    @patch('app.subprocess.run')
+    def test_marks_default_estimate_when_uda_not_configured(self, mock_run, client):
+        mock_run.side_effect = [
+            CONFIG_WITHOUT_ESTIMATE_UDA,
+            mock_result(stdout=json.dumps([SAMPLE_TASK])),
+        ]
+        response = client.get('/list')
+        assert response.status_code == 200
+        assert b'(default)' in response.data
 
 
 # ---------------------------------------------------------------------------
@@ -651,6 +717,7 @@ class TestShowStats:
     def test_happy_path(self, mock_run, client):
         task = {**SAMPLE_TASK, 'estimate': '30m'}
         mock_run.side_effect = [
+            CONFIG_WITH_ESTIMATE_UDA,                     # get_resolved_config
             mock_result(stdout=json.dumps([task])),      # get_tasks_from_report
             mock_result(stdout='- Task A\n- Task B\n'),  # completed today
         ]
@@ -663,6 +730,7 @@ class TestShowStats:
     def test_time_display_hours_and_minutes(self, mock_run, client):
         task = {**SAMPLE_TASK, 'estimate': '75m'}
         mock_run.side_effect = [
+            CONFIG_WITH_ESTIMATE_UDA,
             mock_result(stdout=json.dumps([task, task])),  # 2 × 75m = 2h 30m
             mock_result(stdout=''),
         ]
@@ -674,6 +742,7 @@ class TestShowStats:
     def test_time_display_minutes_only(self, mock_run, client):
         task = {**SAMPLE_TASK, 'estimate': '45m'}
         mock_run.side_effect = [
+            CONFIG_WITH_ESTIMATE_UDA,
             mock_result(stdout=json.dumps([task])),
             mock_result(stdout=''),
         ]
@@ -685,6 +754,7 @@ class TestShowStats:
     def test_time_display_zero_when_no_estimates(self, mock_run, client):
         task = {**SAMPLE_TASK, 'estimate': ''}
         mock_run.side_effect = [
+            CONFIG_WITH_ESTIMATE_UDA,
             mock_result(stdout=json.dumps([task])),
             mock_result(stdout=''),
         ]
@@ -693,8 +763,23 @@ class TestShowStats:
         assert b'0m' in response.data
 
     @patch('app.subprocess.run')
+    def test_falls_back_to_default_estimate_when_uda_not_configured(self, mock_run, client):
+        # ON-66/A2: no uda.estimate at all (stock TaskWarrior) -> default
+        # Pomodoro length per pending task, not a misleading 0m total.
+        task = {**SAMPLE_TASK, 'estimate': ''}
+        mock_run.side_effect = [
+            CONFIG_WITHOUT_ESTIMATE_UDA,
+            mock_result(stdout=json.dumps([task, task])),  # 2 tasks x 25m default
+            mock_result(stdout=''),
+        ]
+        response = client.get('/stats')
+        assert response.status_code == 200
+        assert b'50m' in response.data
+
+    @patch('app.subprocess.run')
     def test_custom_report_param(self, mock_run, client):
         mock_run.side_effect = [
+            CONFIG_WITH_ESTIMATE_UDA,
             mock_result(stdout=json.dumps([SAMPLE_TASK])),
             mock_result(stdout=''),
         ]
@@ -705,6 +790,7 @@ class TestShowStats:
     @patch('app.subprocess.run')
     def test_completed_today_fails_gracefully(self, mock_run, client):
         mock_run.side_effect = [
+            CONFIG_WITH_ESTIMATE_UDA,
             mock_result(stdout=json.dumps([SAMPLE_TASK])),
             Exception('completed query failed'),
         ]
