@@ -23,11 +23,16 @@ def require_password():
             {'WWW-Authenticate': 'Basic realm="OneTask"'}
         )
 
+# Global overrides applied to every invocation so behavior doesn't ride on the
+# user's interactive .taskrc settings (confirmation prompts, nag/verbose lines
+# polluting parsed output, hooks firing as a side effect of a web request).
+RC_OVERRIDES = ['rc.confirmation=off', 'rc.nag=', 'rc.verbose=nothing', 'rc.hooks=off']
+
 def run_task_command(args, timeout=30):
     """Run a TaskWarrior command via subprocess with timeout"""
     try:
         result = subprocess.run(
-            ['task'] + args,
+            ['task'] + RC_OVERRIDES + args,
             capture_output=True,
             text=True,
             timeout=timeout
@@ -37,6 +42,32 @@ def run_task_command(args, timeout=30):
         raise TimeoutError(f"TaskWarrior command timed out after {timeout} seconds")
     except Exception as e:
         raise Exception(f"TaskWarrior command failed: {str(e)}")
+
+def get_resolved_config():
+    """Read TaskWarrior's resolved configuration via `task _show`.
+
+    Returns a dict of the fully-resolved key/value config (UDAs, their types
+    and values, etc.) as TaskWarrior itself resolves it from whatever rc file
+    and includes are in effect. There's no path parameter here on purpose:
+    TaskWarrior resolves its own config, and this never accepts or reads a
+    user-supplied .taskrc path directly.
+    """
+    try:
+        result = run_task_command(['_show'])
+    except Exception:
+        return {}
+
+    if result.returncode != 0:
+        return {}
+
+    config = {}
+    for line in result.stdout.splitlines():
+        line = line.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        key, _, value = line.partition('=')
+        config[key.strip()] = value.strip()
+    return config
 
 def get_tasks_from_report(report_name='next'):
     """Get tasks from specified TaskWarrior report"""
