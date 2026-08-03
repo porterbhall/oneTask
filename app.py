@@ -96,6 +96,10 @@ def estimate_uda_defined(config):
     """Whether the `estimate` UDA is configured, per resolved TaskWarrior config (ON-66/A2)."""
     return any(key.startswith('uda.estimate.') for key in config)
 
+def url_uda_defined(config):
+    """Whether the `url` UDA is configured, per resolved TaskWarrior config (ON-68/A4)."""
+    return any(key.startswith('uda.url.') for key in config)
+
 # Native TaskWarrior priority scheme, used when uda.priority.values isn't
 # customized (this is also literally what a stock install resolves to).
 DEFAULT_PRIORITY_VALUES = ('H', 'M', 'L')
@@ -239,6 +243,7 @@ def show_list():
         config = get_resolved_config()
         estimate_configured = estimate_uda_defined(config)
         priority_values = get_priority_values(config)
+        url_configured = url_uda_defined(config)
         raw_tasks = get_tasks_from_report(report_name)
         print(f"DEBUG: Got {len(raw_tasks)} tasks from TaskWarrior")
 
@@ -278,6 +283,7 @@ def show_list():
                              remaining_seconds=remaining_seconds,
                              estimate_is_default=estimate_is_default,
                              priority_values=priority_values,
+                             url_configured=url_configured,
                              num_tasks=num_tasks,
                              task_id=task_ids,
                              taskseries_id=uuids,  # Use UUID as taskseries_id for compatibility
@@ -757,6 +763,11 @@ def set_task_url(task_id):
         url = request.json.get('url')
         if not url:
             return jsonify({'error': 'URL required', 'status': 'error'}), 400
+        # ON-68/A4: on stock TaskWarrior `url` isn't a known attribute, so
+        # `modify url:...` would be rejected — check first rather than let
+        # that raw TaskWarrior error surface to the user.
+        if not url_uda_defined(get_resolved_config()):
+            return jsonify({'error': 'URL feature not available (url UDA not configured)', 'status': 'error'}), 400
         result = run_task_command([str(task_id), 'modify', f'url:{url}'])
         if result.returncode != 0:
             return jsonify({'error': f'TaskWarrior modify failed: {result.stderr}', 'status': 'error'}), 500
@@ -767,6 +778,8 @@ def set_task_url(task_id):
 @app.route('/task/<task_id>/url', methods=['DELETE'])
 def remove_task_url(task_id):
     try:
+        if not url_uda_defined(get_resolved_config()):
+            return jsonify({'error': 'URL feature not available (url UDA not configured)', 'status': 'error'}), 400
         result = run_task_command([str(task_id), 'modify', 'url:'])
         if result.returncode != 0:
             return jsonify({'error': f'TaskWarrior modify failed: {result.stderr}', 'status': 'error'}), 500

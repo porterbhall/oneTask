@@ -293,6 +293,22 @@ class TestEstimateUdaDefined:
         assert estimate_uda_defined({}) is False
 
 
+class TestUrlUdaDefined:
+    def test_true_when_uda_url_keys_present(self):
+        from app import url_uda_defined
+        config = {'uda.url.type': 'string', 'uda.url.label': 'URL'}
+        assert url_uda_defined(config) is True
+
+    def test_false_when_absent(self):
+        from app import url_uda_defined
+        config = {'dateformat': 'Y-M-D', 'uda.priority.values': 'H,M,L'}
+        assert url_uda_defined(config) is False
+
+    def test_false_for_empty_config(self):
+        from app import url_uda_defined
+        assert url_uda_defined({}) is False
+
+
 class TestGetPriorityValues:
     def test_reads_custom_scheme_from_config(self):
         from app import get_priority_values
@@ -452,6 +468,27 @@ class TestShowList:
         response = client.get('/')
         assert response.status_code == 200
         assert b'var formatted_tasks = ["Test task"]' in response.data
+
+    @patch('app.subprocess.run')
+    def test_url_configured_true_when_uda_present(self, mock_run, client):
+        mock_run.side_effect = [
+            mock_result(stdout='uda.url.type=string\n'),
+            mock_result(stdout=json.dumps([SAMPLE_TASK])),
+        ]
+        response = client.get('/')
+        assert response.status_code == 200
+        assert b'var urlConfigured = true' in response.data
+
+    @patch('app.subprocess.run')
+    def test_url_configured_false_when_uda_absent(self, mock_run, client):
+        # ON-68/A4: stock TaskWarrior has no `url` UDA at all.
+        mock_run.side_effect = [
+            mock_result(stdout='dateformat=Y-M-D\n'),
+            mock_result(stdout=json.dumps([SAMPLE_TASK])),
+        ]
+        response = client.get('/')
+        assert response.status_code == 200
+        assert b'var urlConfigured = false' in response.data
 
 
 # ---------------------------------------------------------------------------
@@ -759,7 +796,10 @@ class TestGetTaskUrl:
 class TestSetTaskUrl:
     @patch('app.subprocess.run')
     def test_happy_path(self, mock_run, client):
-        mock_run.return_value = mock_result(stdout='Modified 1 task.')
+        mock_run.side_effect = [
+            mock_result(stdout='uda.url.type=string\n'),  # get_resolved_config
+            mock_result(stdout='Modified 1 task.'),       # modify
+        ]
         response = client.post('/task/abc12345/url', json={'url': 'https://example.com'})
         assert response.status_code == 200
         assert mock_run.call_args[0][0] == task_args('abc12345', 'modify', 'url:https://example.com')
@@ -769,14 +809,29 @@ class TestSetTaskUrl:
         assert response.status_code == 400
 
     @patch('app.subprocess.run')
+    def test_url_uda_not_configured_returns_400_without_firing_modify(self, mock_run, client):
+        # ON-68/A4: stock TaskWarrior has no `url` UDA — reject cleanly and
+        # never attempt the modify that TaskWarrior would reject anyway.
+        mock_run.return_value = mock_result(stdout='dateformat=Y-M-D\n')
+        response = client.post('/task/abc12345/url', json={'url': 'https://example.com'})
+        assert response.status_code == 400
+        assert mock_run.call_count == 1
+
+    @patch('app.subprocess.run')
     def test_subprocess_failure_returns_500(self, mock_run, client):
-        mock_run.return_value = mock_result(returncode=1, stderr='error')
+        mock_run.side_effect = [
+            mock_result(stdout='uda.url.type=string\n'),
+            mock_result(returncode=1, stderr='error'),
+        ]
         response = client.post('/task/abc12345/url', json={'url': 'https://example.com'})
         assert response.status_code == 500
 
     @patch('app.subprocess.run')
     def test_subprocess_exception_returns_500(self, mock_run, client):
-        mock_run.side_effect = Exception('unexpected error')
+        mock_run.side_effect = [
+            mock_result(stdout='uda.url.type=string\n'),
+            Exception('unexpected error'),
+        ]
         response = client.post('/task/abc12345/url', json={'url': 'https://example.com'})
         assert response.status_code == 500
 
@@ -788,20 +843,36 @@ class TestSetTaskUrl:
 class TestRemoveTaskUrl:
     @patch('app.subprocess.run')
     def test_happy_path(self, mock_run, client):
-        mock_run.return_value = mock_result(stdout='Modified 1 task.')
+        mock_run.side_effect = [
+            mock_result(stdout='uda.url.type=string\n'),
+            mock_result(stdout='Modified 1 task.'),
+        ]
         response = client.delete('/task/abc12345/url')
         assert response.status_code == 200
         assert mock_run.call_args[0][0] == task_args('abc12345', 'modify', 'url:')
 
     @patch('app.subprocess.run')
+    def test_url_uda_not_configured_returns_400_without_firing_modify(self, mock_run, client):
+        mock_run.return_value = mock_result(stdout='dateformat=Y-M-D\n')
+        response = client.delete('/task/abc12345/url')
+        assert response.status_code == 400
+        assert mock_run.call_count == 1
+
+    @patch('app.subprocess.run')
     def test_subprocess_failure_returns_500(self, mock_run, client):
-        mock_run.return_value = mock_result(returncode=1, stderr='error')
+        mock_run.side_effect = [
+            mock_result(stdout='uda.url.type=string\n'),
+            mock_result(returncode=1, stderr='error'),
+        ]
         response = client.delete('/task/abc12345/url')
         assert response.status_code == 500
 
     @patch('app.subprocess.run')
     def test_subprocess_exception_returns_500(self, mock_run, client):
-        mock_run.side_effect = Exception('unexpected error')
+        mock_run.side_effect = [
+            mock_result(stdout='uda.url.type=string\n'),
+            Exception('unexpected error'),
+        ]
         response = client.delete('/task/abc12345/url')
         assert response.status_code == 500
 

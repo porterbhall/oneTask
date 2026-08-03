@@ -102,8 +102,8 @@
             </div>
         </div>
 
-        <!-- URL Section -->
-        <div class="details-section">
+        <!-- URL Section (hidden entirely when the url UDA isn't configured — ON-68/A4) -->
+        <div class="details-section" id="url-section">
             <h4>Link</h4>
             <div id="url-display"></div>
             <div class="url-edit-form" id="url-edit-form" style="display: none;">
@@ -144,6 +144,7 @@
     var task_names = {{ task_names | tojson }};
     var task_priorities = {{ task_priorities | tojson }};
     var priorityValues = {{ priority_values | tojson }};
+    var urlConfigured = {{ url_configured | tojson }};
     var remainingTime = moment.duration(remainingSeconds[currentTaskIndex], 'seconds');
     var countdownBox = document.querySelector('.countdown-box');
     var countdownInterval;
@@ -564,7 +565,12 @@ function updateCountdown() {
         updateTagsDisplay(false);
         updatePriorityDisplay();
         hidePriorityForm();
-        updateUrlDisplay();
+        // ON-68/A4: hide the whole URL section when the url UDA isn't
+        // configured, rather than offer a control that can only ever fail.
+        document.getElementById('url-section').style.display = urlConfigured ? '' : 'none';
+        if (urlConfigured) {
+            updateUrlDisplay();
+        }
     }
 
     function toggleAnnotationSort() {
@@ -903,6 +909,7 @@ function updateCountdown() {
     }
 
     function showUrlForm() {
+        if (!urlConfigured) return;
         const url = taskUrl[currentTaskIndex];
         const hasUrl = url && url.toLowerCase() !== 'none';
         document.getElementById('url-input').value = hasUrl ? url : '';
@@ -915,6 +922,7 @@ function updateCountdown() {
     }
 
     function saveUrl() {
+        if (!urlConfigured) return;
         const taskId = task_id[currentTaskIndex];
         const newUrl = document.getElementById('url-input').value.trim();
 
@@ -946,6 +954,7 @@ function updateCountdown() {
     }
 
     function removeUrl() {
+        if (!urlConfigured) return;
         if (!confirm('Remove link?')) return;
 
         const taskId = task_id[currentTaskIndex];
