@@ -12,10 +12,10 @@ OneTask is a personal, single-user tool shared in case it's useful to you. See [
 - **TaskWarrior Integration**: Uses TaskWarrior's native report system, respecting all `.taskrc` configurations
 - **Task Navigation**: Navigate through tasks with Previous/Next buttons, or jump straight to one from the full List view
 - **Task Identifiers**: Clickable 8-character task IDs for easy terminal lookup
-- **Statistics Page**: Report-specific stats including pending tasks, completed today, and time estimates
+- **Combined List + Stats View**: The List screen shows pending count, completed-today, and total time estimate as a header above the full task list
 - **Visual Indicators**: Red background for overdue tasks
 - **Task Completion**: Mark tasks complete/incomplete directly from the interface
-- **Report Support**: Works with any configured TaskWarrior report (focus, next, ready, etc.)
+- **Report Support**: Works with any configured TaskWarrior report — built-ins like `next` and `ready` work out of the box; a personal report like `focus` needs to be defined first (see [Optional customizations](#optional-customizations))
 - **Inline Editing**: Edit a task's title (`T`) and priority directly in the task panel
 - **Notes Management**: Add, view, and delete task annotations with configurable sort order (newest/oldest first); new-note form repositions to match sort order
 - **Tag Management**: Add and remove tags directly in the task panel without using the TUI
@@ -56,6 +56,27 @@ OneTask does **not** bundle TaskWarrior — you install it separately (see [Ackn
    task --version  # Should show TaskWarrior version
    ```
 
+## Setup
+
+OneTask runs against a stock TaskWarrior install with no configuration required — it degrades gracefully wherever it can. Two small `.taskrc` additions unlock its full feature set, though. Neither is required to start using OneTask; add them whenever you want the features they unlock.
+
+If you've never edited `.taskrc` before: it's a plain text file, usually at `~/.taskrc`, created automatically the first time you run any `task` command. Add the lines below anywhere in it and save — no OneTask restart needed, since it reads TaskWarrior's config fresh on every request.
+
+```ini
+# Unlocks the countdown timer's per-task time estimate
+uda.estimate.type=duration
+uda.estimate.label=Est
+
+# Unlocks the URL field in the task details panel
+uda.url.type=string
+uda.url.label=URL
+```
+
+- **`estimate`** fuels the Pomodoro countdown — set it per task with `task <id> modify estimate:25min` (TaskWarrior's own CLI parses bare `25m` as 25 *months*, not minutes — spell out `min` or use ISO 8601 `PT25M`). Without this UDA configured, OneTask falls back to a 25-minute default timer and shows a "no estimate configured" notice, instead of a dead 0:00 countdown.
+- **`url`** lets you attach a link to a task and open it from the timer view. Without this UDA configured, the URL field is hidden entirely from the details panel — you won't see a broken control.
+
+See [Optional customizations](#optional-customizations) below for further tuning once the basics are working.
+
 ## Usage
 
 1. **Start the server**
@@ -68,22 +89,23 @@ OneTask does **not** bundle TaskWarrior — you install it separately (see [Ackn
 
    By default OneTask is reachable only from the machine it's running on. To reach it from your phone or another computer, see [Configuration](#configuration).
 
-   **Optional: Use custom TaskWarrior reports**
-   You can specify any configured TaskWarrior report using the `report` query parameter:
+   **Optional: Use a specific TaskWarrior report**
+   You can specify any configured TaskWarrior report using the `report` query parameter. These are built in to TaskWarrior and work on any install:
    ```
-   http://localhost:5000/?report=focus
    http://localhost:5000/?report=next
    http://localhost:5000/?report=ready
    ```
 
-   OneTask uses TaskWarrior's native `task export <report>` command, so all your `.taskrc` report configurations (filters, sorting, columns) are automatically respected.
+   A report like `focus` is a **personal, custom** report, not a built-in one — `/?report=focus` will fail until you define it yourself. See [Optional customizations](#optional-customizations) for how.
+
+   OneTask uses TaskWarrior's native `task export <report>` command, so all your `.taskrc` report configurations (filters, sorting, columns) are automatically respected. Requesting a report that doesn't exist falls back to `next` with a clear notice rather than erroring out.
 
 3. **Using the interface**
    - Tasks are automatically loaded from TaskWarrior
    - Click the timer to pause/resume
    - Use Previous/Next buttons to navigate tasks
    - Click the task ID to copy it to clipboard for terminal use
-   - Click "Stats" (upper left) to view report statistics
+   - Click "List" (upper left) to browse the full task list along with pending/completed-today/estimate-remaining stats
    - Click "Complete Task" to mark tasks as done
    - Click "Uncomplete Task" to reopen completed tasks
 
@@ -112,6 +134,63 @@ If you request LAN binding (`0.0.0.0`) **without** setting a password, OneTask w
 
 Read [Security](#security) before exposing OneTask to any network.
 
+## Optional customizations
+
+> **These are all optional.** OneTask works fully without any of them — this section is for tuning TaskWarrior itself to get more out of the app. None of it is a OneTask setting; it all lives in your `.taskrc`. See [Setup](#setup) above for the two additions that unlock OneTask features (not just cosmetic tuning).
+
+### A numeric priority scheme (1/2/3 instead of High/Medium/Low)
+
+TaskWarrior's default priority scheme is `H`/`M`/`L`. OneTask reads whatever scheme is actually configured — its priority editor and sort order adapt to it automatically, so if you'd rather see 1/2/3:
+
+```ini
+uda.priority.type=string
+uda.priority.label=Priority
+uda.priority.values=1,2,3
+```
+
+### Urgency coefficients (better task ordering)
+
+TaskWarrior's reports sort by "urgency," a weighted score you control with coefficients. If you've added the `estimate` UDA (from [Setup](#setup)) and a custom priority scheme (above), you can weight them into that score:
+
+```ini
+urgency.uda.priority.1.coefficient=500   # push priority-1 tasks to the top
+urgency.uda.priority.2.coefficient=50
+urgency.uda.priority.3.coefficient=1
+
+urgency.uda.estimate.5mins.coefficient=3 # prefer quick tasks when tied
+urgency.uda.estimate.10mins.coefficient=2
+urgency.uda.estimate.20mins.coefficient=1
+
+urgency.due.coefficient=1
+```
+
+These numbers are a starting point, not a fixed recipe — tune them to match how you want tasks ranked. See TaskWarrior's [urgency documentation](https://taskwarrior.org/docs/urgency/) for the full coefficient list.
+
+### A custom `focus` report
+
+`focus` (referenced elsewhere in this README as an example) isn't a built-in TaskWarrior report — it's a personal one, defined in `.taskrc` like any other:
+
+```ini
+report.focus.description=Where I should focus
+report.focus.columns=id,priority,estimate,due,project,description.count
+report.focus.labels=ID,P,Est.,Due,Project,Description
+report.focus.sort=urgency-
+report.focus.filter=status:pending
+```
+
+Adjust `filter` to whatever narrows down "what should I work on right now" for you — this example just shows all pending tasks; TaskWarrior's filter syntax supports much more (project, tags, due dates, and boolean combinations of them).
+
+### Other personal UDAs
+
+You can define any TaskWarrior UDA and OneTask will simply leave it alone — it carries whatever attributes your reports export without needing to know about them. For example, a UDA for tracking recurring-task due-date math:
+
+```ini
+uda.relativeRecurDue.type=duration
+uda.relativeRecurDue.label=Rel. Rec. Due
+```
+
+has nothing to do with OneTask specifically — it's here as a pattern for extending TaskWarrior with whatever attributes are useful to your own workflow, not something OneTask reads or requires.
+
 ## Task Data
 
 The application works with standard TaskWarrior tasks and supports:
@@ -135,16 +214,15 @@ OneTask provides the following HTTP endpoints:
 Main application interface. Loads and displays tasks from the specified TaskWarrior report.
 
 **Query Parameters:**
-- `report` (optional): TaskWarrior report name (default: "next")
-  - Examples: `/?report=focus`, `/?report=ready`, `/?report=someday`
+- `report` (optional): TaskWarrior report name (default: "next"). Built-in examples: `/?report=next`, `/?report=ready`. An unrecognized report name (e.g. a typo, or a custom report you haven't defined) falls back to `next` with a clear notice rather than erroring out.
 - `task` (optional): UUID of the task to jump to (used by the List view). Falls back to the first task if not found.
 
 ### GET /list
-Full-page list of every task in the specified report, for browsing or jumping to a specific task. Each row links back to `/` with the task pre-selected.
+Combined stats summary (pending count, completed today, estimate remaining) and full task list for the specified report, for browsing or jumping to a specific task. Each row links back to `/` with the task pre-selected. Reached via the "List" link (upper left) on the main interface.
 
 **Query Parameters:**
 - `report` (optional): TaskWarrior report name (default: "next")
-  - Examples: `/list?report=focus`, `/list?report=ready`
+  - Examples: `/list?report=next`, `/list?report=ready`
 
 ### POST /complete_task
 Marks a task as complete in TaskWarrior.
@@ -181,17 +259,7 @@ Adds a new task to TaskWarrior using native TaskWarrior syntax.
 ```
 
 ### GET /stats
-Displays statistics for the current TaskWarrior report.
-
-**Query Parameters:**
-- `report` (optional): TaskWarrior report name (default: "next")
-  - Examples: `/stats?report=focus`, `/stats?report=ready`
-
-**Features:**
-- Shows pending task count for the specified report
-- Displays tasks completed today
-- Calculates total time estimates for pending tasks
-- Minimal text layout with navigation back to main interface
+Redirects to `/list?report=<report>` — the stats summary now lives as a header on the combined list screen rather than a separate page.
 
 ### GET /task/\<id\>/annotations
 Returns all annotations (notes) for a task.
