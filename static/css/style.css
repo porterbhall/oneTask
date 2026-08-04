@@ -206,6 +206,32 @@ body {
     background-color: #5d5d5d;
 }
 
+/* Mobile / touch breakpoint: covers narrow portrait widths and short
+   landscape heights (phones rotated), where controls need to be sized
+   as thumb targets instead of the desktop click targets above. */
+@media (max-width: 768px), (max-height: 500px) and (orientation: landscape) {
+    .actions {
+        display: flex;
+        gap: 10px;
+        padding: 0 16px;
+    }
+
+    .actions button {
+        flex: 1;
+        min-height: 48px;
+        margin: 0;
+        padding: 12px 8px;
+        font-size: 14px;
+        white-space: nowrap;
+    }
+
+    .actions .completeButton {
+        flex: 2;
+        font-size: 16px;
+        font-weight: bold;
+    }
+}
+
 .completed {
     text-decoration: line-through;
     color: #999; /* Adjust color for crossed-out text */

@@ -3,6 +3,7 @@
 
 <head>
     <title>{% if report_name and report_name != 'next' %}OneTask: {{ report_name.capitalize() }}{% else %}OneTask{% endif %}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
     <link rel="icon" type="image/x-icon" href="{{ url_for('static', filename='favicon.ico') }}">
     <script src="https://cdnjs.cloudflare.com/ajax/libs/moment.js/2.29.1/moment.min.js"></script>
     <link rel="stylesheet" href="../static/css/style.css">
