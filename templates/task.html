@@ -446,6 +446,9 @@ function updateCountdown() {
             case 't':
                 enterTitleEditMode();
                 break;
+            case 's':
+                window.location.href = document.querySelector('.list-link').href;
+                break;
         }
     });
 

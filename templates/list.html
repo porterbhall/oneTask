@@ -69,6 +69,18 @@
                 console.error('Failed to copy stats: ', err);
             });
         }
+
+        // Keyboard navigation
+        document.addEventListener('keydown', function(event) {
+            // Don't trigger shortcuts when typing in input fields
+            if (event.target.tagName === 'TEXTAREA' || event.target.tagName === 'INPUT') {
+                return;
+            }
+
+            if (event.key.toLowerCase() === 's') {
+                window.location.href = document.querySelector('.list-link').href;
+            }
+        });
     </script>
 </body>
 
