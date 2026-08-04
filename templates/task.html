@@ -71,7 +71,10 @@
             <div id="annotations-list"></div>
             <div class="annotation-form">
                 <textarea id="new-annotation" placeholder="Add a note..." rows="3"></textarea>
-                <button id="save-annotation">Save Note</button>
+                <div class="annotation-form-footer">
+                    <span class="return-to-save-hint">Return to save</span>
+                    <button id="save-annotation">Save Note</button>
+                </div>
             </div>
         </div>
         
@@ -159,6 +162,9 @@
     var short_ids = {{ short_ids | tojson }};
     var task_annotations = {{ task_annotations | tojson }};
     var annotationSortNewest = true;
+    // Same condition as the CSS mobile/landscape breakpoint (ON-73+) — used
+    // where behavior, not just styling, needs to differ (ON-76 notes).
+    var MOBILE_BREAKPOINT = '(max-width: 768px), (max-height: 500px) and (orientation: landscape)';
     var task_due_dates = {{ task_due_dates | tojson }};
     var task_tags = {{ task_tags | tojson }};
     var task_names = {{ task_names | tojson }};
@@ -665,12 +671,20 @@ function updateCountdown() {
             const entryDate = parseTaskWarriorDate(annotation.entry);
             const dateDisplay = entryDate ? entryDate.toLocaleDateString() : 'Unknown date';
 
-            // Create annotation text element with click-to-copy
+            // Create annotation text element with click-to-copy (desktop) /
+            // tap-to-expand (mobile, ON-76) — kept mutually exclusive since
+            // copyAnnotation() briefly replaces the text with "Copied!",
+            // which would flash over the text right as a mobile user taps
+            // to read it.
             const annotationText = document.createElement('div');
             annotationText.className = 'annotation-text copyable';
             annotationText.textContent = annotation.description;
             annotationText.onclick = function() {
-                copyAnnotation(annotation.description, this);
+                if (window.matchMedia(MOBILE_BREAKPOINT).matches) {
+                    annotationDiv.classList.toggle('annotation-expanded');
+                } else {
+                    copyAnnotation(annotation.description, this);
+                }
             };
 
             // Create annotation meta element
@@ -1352,6 +1366,15 @@ function updateCountdown() {
     document.getElementById('save-annotation').onclick = saveAnnotation;
     document.getElementById('new-annotation').addEventListener('keydown', function(event) {
         if (event.key === 'Enter' && event.metaKey) {
+            event.preventDefault();
+            saveAnnotation();
+            return;
+        }
+        // Mobile touch equivalent of desktop's Cmd+Enter (ON-76) — plain
+        // Return saves, matching the "Return to save" hint shown there;
+        // Shift+Return still inserts a newline. Desktop keeps requiring
+        // Cmd+Enter so a bare Enter can still write multi-line notes.
+        if (event.key === 'Enter' && !event.shiftKey && window.matchMedia(MOBILE_BREAKPOINT).matches) {
             event.preventDefault();
             saveAnnotation();
         }

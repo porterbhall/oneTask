@@ -417,6 +417,39 @@ body {
         color: #2d2d2d;
         font-weight: bold;
     }
+
+    /* Notes default to a compact single-line row; tap expands (ON-76).
+       Desktop is unaffected — .annotation-expanded has no meaning outside
+       this breakpoint, so it always shows everything as before. */
+    .annotation-text {
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+    }
+
+    .annotation-meta {
+        display: none;
+    }
+
+    .annotation-item.annotation-expanded .annotation-text {
+        white-space: normal;
+        overflow: visible;
+    }
+
+    .annotation-item.annotation-expanded .annotation-meta {
+        display: flex;
+    }
+
+    .annotation-form-footer {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+    }
+
+    .annotation-form:focus-within .return-to-save-hint {
+        display: inline;
+    }
 }
 
 .task-details-header {
@@ -530,6 +563,14 @@ body {
     margin-bottom: 10px;
     font-family: inherit;
     resize: vertical;
+}
+
+/* Mobile-only hint shown while composing a note (ON-76); desktop uses
+   Cmd+Enter with no on-screen hint, as before. */
+.return-to-save-hint {
+    display: none;
+    color: #888;
+    font-size: 12px;
 }
 
 .annotation-form button {
