@@ -959,3 +959,56 @@ body {
     color: #66BB6A;
 }
 
+/* Landscape-only vertical compaction (ON-78). The portrait/width side of
+   the mobile breakpoint has plenty of vertical room already; landscape
+   phones don't — at the desktop sizes above, the stacked title/countdown/
+   actions/Details column overflows a ~375px-tall landscape viewport and
+   pushes the Details button off-screen. This is deliberately its OWN
+   landscape-only query (not reusing the combined breakpoint above) so
+   portrait sizing, already confirmed working, is untouched. Keeps the
+   same centered composition, just scaled to fit — no restructuring. */
+@media (max-height: 500px) and (orientation: landscape) {
+    body {
+        padding-top: 2vh;
+    }
+
+    .task-name-container {
+        margin-bottom: 4px;
+    }
+
+    .task-name {
+        font-size: 24px;
+        padding: 4px 10px;
+    }
+
+    .task-id-display {
+        margin-bottom: 6px;
+        font-size: 13px;
+    }
+
+    .countdown-box {
+        padding: 6px;
+        font-size: 24px;
+    }
+
+    .countdown-text {
+        font-size: 24px;
+    }
+
+    .estimate-fallback-notice {
+        margin-top: 4px;
+    }
+
+    .actions {
+        margin-top: 8px;
+    }
+
+    .details-button {
+        margin-top: 6px;
+    }
+
+    .url a {
+        margin-bottom: 6px;
+    }
+}
+
