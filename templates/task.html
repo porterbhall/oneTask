@@ -1083,7 +1083,7 @@ function updateCountdown() {
         h1.style.display = 'none';
         editForm.style.display = 'block';
         input.focus();
-        input.select();
+        input.setSelectionRange(input.value.length, input.value.length);
     }
 
     function exitTitleEditMode() {
