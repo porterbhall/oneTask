@@ -41,10 +41,16 @@
         <button class="completeButton" onclick="completeTask()">Complete Task</button>
         <button onclick="skipToNextTask()">Next >></button>
     </div>
+    <button id="details-button" class="details-button" onclick="toggleTaskDetails()">&#9432; Details</button>
     <h2 class="url"><a href="#" target="_blank">Link</a></h2>
     
-    <!-- Task Details Section (Hidden by default) -->
-    <div id="task-details" class="task-details" style="display: none;">
+    <!-- Scrim behind the mobile bottom sheet (ON-74); no-op on desktop -->
+    <div id="details-scrim" class="details-scrim" onclick="toggleTaskDetails()"></div>
+
+    <!-- Task Details Section (Hidden by default). On mobile this doubles as a
+         bottom sheet — see the .task-details media query rules. -->
+    <div id="task-details" class="task-details">
+        <div class="task-details-grab-handle" aria-hidden="true"></div>
         <div class="task-details-header">
             <h3>Task Details</h3>
             <button id="toggle-details" class="toggle-button">Hide</button>
@@ -478,18 +484,56 @@ function updateCountdown() {
     function toggleTaskDetails() {
         const detailsDiv = document.getElementById('task-details');
         const toggleButton = document.getElementById('toggle-details');
-        
+        const scrim = document.getElementById('details-scrim');
+
         taskDetailsVisible = !taskDetailsVisible;
-        
+
         if (taskDetailsVisible) {
-            detailsDiv.style.display = 'block';
+            detailsDiv.classList.add('task-details-open');
+            scrim.classList.add('details-scrim-open');
             toggleButton.textContent = 'Hide';
             updateTaskDetails();
         } else {
-            detailsDiv.style.display = 'none';
+            detailsDiv.classList.remove('task-details-open');
+            scrim.classList.remove('details-scrim-open');
             toggleButton.textContent = 'Show';
         }
     }
+
+    // Swipe-down-to-dismiss on the bottom sheet's grab handle (mobile only;
+    // the handle is hidden on desktop so these listeners are inert there).
+    (function() {
+        var handle = document.querySelector('.task-details-grab-handle');
+        var sheet = document.getElementById('task-details');
+        var startY = null;
+        var lastDelta = 0;
+
+        function onDragStart(e) {
+            startY = e.touches[0].clientY;
+            sheet.style.transition = 'none';
+        }
+
+        function onDragMove(e) {
+            if (startY === null) return;
+            lastDelta = Math.max(0, e.touches[0].clientY - startY);
+            sheet.style.transform = 'translateY(' + lastDelta + 'px)';
+        }
+
+        function onDragEnd() {
+            if (startY === null) return;
+            sheet.style.transition = '';
+            sheet.style.transform = '';
+            if (lastDelta > 80 && taskDetailsVisible) {
+                toggleTaskDetails();
+            }
+            startY = null;
+            lastDelta = 0;
+        }
+
+        handle.addEventListener('touchstart', onDragStart, { passive: true });
+        handle.addEventListener('touchmove', onDragMove, { passive: true });
+        handle.addEventListener('touchend', onDragEnd);
+    })();
 
     function refreshCurrentTaskData() {
         const taskId = task_id[currentTaskIndex];
