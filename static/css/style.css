@@ -650,6 +650,7 @@ body {
     padding: 16px 10px;
     background-color: #363636;
     border-radius: 5px;
+    cursor: pointer;
 }
 
 .list-stat-item {

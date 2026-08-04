@@ -18,7 +18,7 @@
         </div>
         {% endif %}
 
-        <div class="list-stats-header">
+        <div class="list-stats-header" onclick="copyStats(this)" data-copy-text="{{ pending_count }} Pending, {{ completed_today }} done today, {{ estimate_display }} Est. left">
             <div class="list-stat-item">
                 <div class="list-stat-value">{{ pending_count }}</div>
                 <div class="list-stat-label">Pending</div>
@@ -54,6 +54,22 @@
             <a href="/?report={{ report_name }}">← Back to OneTask</a>
         </div>
     </div>
+
+    <script>
+        function copyStats(el) {
+            var text = el.getAttribute('data-copy-text');
+            navigator.clipboard.writeText(text).then(function() {
+                console.log('Stats copied to clipboard: ' + text);
+                var originalHTML = el.innerHTML;
+                el.innerHTML = '<div class="list-stat-item"><div class="list-stat-value">Copied!</div></div>';
+                setTimeout(function() {
+                    el.innerHTML = originalHTML;
+                }, 1000);
+            }).catch(function(err) {
+                console.error('Failed to copy stats: ', err);
+            });
+        }
+    </script>
 </body>
 
 </html>
