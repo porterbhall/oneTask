@@ -335,10 +335,16 @@ body {
         max-width: none;
         max-height: 80vh;
         overflow-y: auto;
+        overflow-x: hidden;
         border-radius: 16px 16px 0 0;
         transform: translateY(100%);
         transition: transform 0.3s ease;
         z-index: 1001;
+        /* left:0 + right:0 computes the box width to fill the viewport;
+           without border-box, the base rule's padding:20px then adds on
+           top of that width instead of being absorbed into it, pushing
+           the sheet ~40px past the right edge. */
+        box-sizing: border-box;
     }
 
     .task-details.task-details-open {
