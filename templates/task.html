@@ -55,7 +55,13 @@
             <h3>Task Details</h3>
             <button id="toggle-details" class="toggle-button">Hide</button>
         </div>
-        
+
+        <!-- Title Section (touch equivalent of the "T" key) -->
+        <div class="details-section">
+            <h4>Title</h4>
+            <div id="details-title-display" class="details-title-display" onclick="enterTitleEditMode()"></div>
+        </div>
+
         <!-- Annotations Section -->
         <div class="details-section">
             <div class="notes-section-header">
@@ -111,6 +117,9 @@
                     <button id="cancel-priority">Cancel</button>
                 </div>
             </div>
+            <!-- Mobile-only touch alternative to the select+Edit flow above
+                 (ON-75); saves immediately on tap, no separate Save step. -->
+            <div id="priority-segmented" class="priority-segmented"></div>
         </div>
 
         <!-- URL Section (hidden entirely when the url UDA isn't configured — ON-68/A4) -->
@@ -610,12 +619,14 @@ function updateCountdown() {
     }
 
     function updateTaskDetails() {
+        updateDetailsTitleDisplay();
         updateAnnotationsDisplay();
         updateDueDateDisplay();
         document.getElementById('tag-add-form').style.display = 'none';
         document.getElementById('new-tag-input').value = '';
         updateTagsDisplay(false);
         updatePriorityDisplay();
+        updatePrioritySegmented();
         hidePriorityForm();
         // ON-68/A4: hide the whole URL section when the url UDA isn't
         // configured, rather than offer a control that can only ever fail.
@@ -1124,6 +1135,12 @@ function updateCountdown() {
     // Title edit functions (ON-26)
     function enterTitleEditMode() {
         if (isTaskCompleted(currentTaskIndex)) return;
+        // The edit form lives above the details sheet, not inside it — on
+        // mobile, close the sheet first so there's room to see/use it,
+        // rather than duplicating title-edit markup inside the sheet too.
+        if (taskDetailsVisible) {
+            toggleTaskDetails();
+        }
         var h1 = document.querySelector('.task-name');
         var editForm = document.getElementById('title-edit-form');
         var input = document.getElementById('title-input');
@@ -1132,6 +1149,15 @@ function updateCountdown() {
         editForm.style.display = 'block';
         input.focus();
         input.setSelectionRange(input.value.length, input.value.length);
+    }
+
+    // Mirrors the current title into the details sheet's Title row
+    // (touch entry point for the same enterTitleEditMode() the "T" key uses).
+    function updateDetailsTitleDisplay() {
+        var display = document.getElementById('details-title-display');
+        if (display) {
+            display.textContent = task_names[currentTaskIndex];
+        }
     }
 
     function exitTitleEditMode() {
@@ -1159,6 +1185,7 @@ function updateCountdown() {
                 task_names[currentTaskIndex] = newDescription;
                 formatted_tasks[currentTaskIndex] = formatTaskTitle(task_priorities[currentTaskIndex], newDescription);
                 document.querySelector('.task-name').innerHTML = formatted_tasks[currentTaskIndex];
+                updateDetailsTitleDisplay();
                 exitTitleEditMode();
             } else {
                 alert('Error saving: ' + data.error);
@@ -1235,6 +1262,12 @@ function updateCountdown() {
 
     function saveTaskPriority() {
         const newPriority = document.getElementById('priority-select').value;
+        applyTaskPriority(newPriority);
+    }
+
+    // Shared by the desktop select+Save form and the mobile segmented
+    // control (ON-75) — same endpoint, same state update either way.
+    function applyTaskPriority(newPriority) {
         const taskId = task_id[currentTaskIndex];
         fetch(`/task/${taskId}/priority`, {
             method: 'POST',
@@ -1249,6 +1282,7 @@ function updateCountdown() {
                 document.querySelector('.task-name').innerHTML = formatted_tasks[currentTaskIndex];
                 hidePriorityForm();
                 updatePriorityDisplay();
+                updatePrioritySegmented();
             } else {
                 alert('Error saving priority: ' + data.error);
             }
@@ -1257,6 +1291,60 @@ function updateCountdown() {
             console.error('Error saving priority:', err);
             alert('Error saving priority');
         });
+    }
+
+    // Clears priority entirely — the segmented control's "None" segment
+    // (ON-75). Uses the new DELETE /task/<id>/priority route, following the
+    // same remove-field convention already used for due date/url/tags.
+    function clearTaskPriority() {
+        const taskId = task_id[currentTaskIndex];
+        fetch(`/task/${taskId}/priority`, { method: 'DELETE' })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'success') {
+                task_priorities[currentTaskIndex] = '';
+                formatted_tasks[currentTaskIndex] = formatTaskTitle('', task_names[currentTaskIndex]);
+                document.querySelector('.task-name').innerHTML = formatted_tasks[currentTaskIndex];
+                updatePriorityDisplay();
+                updatePrioritySegmented();
+            } else {
+                alert('Error clearing priority: ' + data.error);
+            }
+        })
+        .catch(err => {
+            console.error('Error clearing priority:', err);
+            alert('Error clearing priority');
+        });
+    }
+
+    // Mobile touch alternative to the select+Edit/Save flow: tapping a
+    // segment saves immediately, no separate save step.
+    function updatePrioritySegmented() {
+        const container = document.getElementById('priority-segmented');
+        if (!container) return;
+        container.innerHTML = '';
+
+        // Degrade like updatePriorityDisplay() does: unknown/empty scheme
+        // can't validate a choice, so offer nothing rather than a broken form.
+        if (priorityValues.length === 0) return;
+
+        const current = task_priorities[currentTaskIndex];
+
+        priorityValues.forEach(function(value) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'priority-segment' + (value === current ? ' active' : '');
+            btn.textContent = value;
+            btn.onclick = function() { applyTaskPriority(value); };
+            container.appendChild(btn);
+        });
+
+        const noneBtn = document.createElement('button');
+        noneBtn.type = 'button';
+        noneBtn.className = 'priority-segment priority-segment-none' + (!current ? ' active' : '');
+        noneBtn.textContent = 'None';
+        noneBtn.onclick = clearTaskPriority;
+        container.appendChild(noneBtn);
     }
 
     // Event listeners for buttons

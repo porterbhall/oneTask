@@ -1166,3 +1166,22 @@ class TestSetTaskPriority:
         ]
         response = client.post('/task/abc12345/priority', json={'priority': '2'})
         assert response.status_code == 500
+
+
+# ---------------------------------------------------------------------------
+# Route tests: DELETE /task/<id>/priority
+# ---------------------------------------------------------------------------
+
+class TestRemoveTaskPriority:
+    @patch('app.subprocess.run')
+    def test_happy_path(self, mock_run, client):
+        mock_run.return_value = mock_result(stdout='Modified 1 task.')
+        response = client.delete('/task/abc12345/priority')
+        assert response.status_code == 200
+        assert mock_run.call_args[0][0] == task_args('abc12345', 'modify', 'priority:')
+
+    @patch('app.subprocess.run')
+    def test_subprocess_failure_returns_500(self, mock_run, client):
+        mock_run.return_value = mock_result(returncode=1, stderr='error')
+        response = client.delete('/task/abc12345/priority')
+        assert response.status_code == 500

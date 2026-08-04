@@ -880,6 +880,16 @@ def set_task_priority(task_id):
     except Exception as e:
         return jsonify({'error': str(e), 'status': 'error'}), 500
 
+@app.route('/task/<task_id>/priority', methods=['DELETE'])
+def remove_task_priority(task_id):
+    try:
+        result = run_task_command([str(task_id), 'modify', 'priority:'])
+        if result.returncode != 0:
+            return jsonify({'error': f'TaskWarrior modify failed: {result.stderr}', 'status': 'error'}), 500
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        return jsonify({'error': str(e), 'status': 'error'}), 500
+
 if __name__ == '__main__':
     port = int(os.environ.get('ONETASK_PORT', 5000))
     host = os.environ.get('ONETASK_HOST', '127.0.0.1')

@@ -132,6 +132,27 @@ body {
     background-color: #5d5d5d;
 }
 
+/* Touch alternative to the select+Edit/Save form above (ON-75) — hidden on
+   desktop, shown in the mobile breakpoint further down. */
+.priority-segmented {
+    display: none;
+}
+
+/* Title row inside the details sheet (ON-75) — touch equivalent of the "T"
+   key; same tap-to-edit affordance as the main heading. */
+.details-title-display {
+    color: #e6d7d7;
+    cursor: pointer;
+    padding: 5px;
+    margin: -5px;
+    border-radius: 3px;
+    transition: background-color 0.2s ease;
+}
+
+.details-title-display:hover {
+    background-color: #4d4d4d;
+}
+
 .task-id-display {
     text-align: center;
     margin-bottom: 20px;
@@ -331,6 +352,70 @@ body {
         margin: 0 auto 16px;
         background-color: #4d4d4d;
         border-radius: 2px;
+    }
+
+    .details-title-display {
+        min-height: 24px;
+        padding: 10px;
+        margin: -10px;
+        font-size: 16px;
+    }
+
+    /* Broad touch-sizing pass (ON-75) for the field editors inside the
+       sheet — Notes/Due/Tags/URL forms are functionally complete already
+       (same endpoints as desktop), they just need bigger targets here. */
+    .task-details input,
+    .task-details select,
+    .task-details button,
+    .task-details textarea {
+        min-height: 44px;
+        font-size: 16px;
+    }
+
+    .tag-item {
+        padding: 8px 12px;
+        font-size: 14px;
+    }
+
+    .tag-remove-x {
+        min-height: auto;
+        font-size: 18px;
+        padding: 4px 6px;
+    }
+
+    .tag-action-btn {
+        min-width: 44px;
+        font-size: 18px;
+    }
+
+    /* Mobile priority segmented control replaces the desktop select+Edit
+       flow (ON-75); tapping a segment saves immediately. */
+    #priority-display {
+        display: none;
+    }
+
+    .priority-segmented {
+        display: flex;
+        gap: 8px;
+        flex-wrap: wrap;
+    }
+
+    .priority-segment {
+        flex: 1;
+        min-width: 44px;
+        min-height: 44px;
+        background-color: #4d4d4d;
+        color: #c2c2c2;
+        border: none;
+        border-radius: 3px;
+        font-size: 14px;
+        cursor: pointer;
+    }
+
+    .priority-segment.active {
+        background-color: #c2c2c2;
+        color: #2d2d2d;
+        font-weight: bold;
     }
 }
 
