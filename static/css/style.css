@@ -917,6 +917,33 @@ body {
     color: #c2c2c2;
 }
 
+/* Touch-styling for the combined stats+list screen (ON-77). Placed after
+   the base .list-* rules above (not inside the earlier breakpoint blocks)
+   so the cascade actually applies on mobile — see ON-74's lesson on this. */
+@media (max-width: 768px), (max-height: 500px) and (orientation: landscape) {
+    .list-link {
+        font-size: 16px;
+        padding: 10px 12px;
+        min-height: 24px;
+    }
+
+    .list-container {
+        padding: 24px 16px;
+    }
+
+    .list-task-row {
+        padding: 14px 12px;
+        min-height: 44px;
+        box-sizing: border-box;
+    }
+
+    .list-stats-header {
+        padding: 14px 8px;
+        min-height: 44px;
+        box-sizing: border-box;
+    }
+}
+
 .clickable-task-id {
     font-family: 'Courier New', monospace;
     font-weight: bold;
