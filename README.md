@@ -1,6 +1,6 @@
 # OneTask
 
-> v2.2.0 · source-available, AGPL-3.0
+> v2.3.0 · source-available, AGPL-3.0
 
 A Pomodoro-style task management web application that wraps [TaskWarrior](https://taskwarrior.org/) in a focused, timer-based interface. It shows you one task at a time, counts down its time estimate, and lets you stay in flow without switching back to the terminal.
 
@@ -16,11 +16,13 @@ OneTask is a personal, single-user tool shared in case it's useful to you. See [
 - **Visual Indicators**: Red background for overdue tasks
 - **Task Completion**: Mark tasks complete/incomplete directly from the interface
 - **Report Support**: Works with any configured TaskWarrior report — built-ins like `next` and `ready` work out of the box; a personal report like `focus` needs to be defined first (see [Optional customizations](#optional-customizations))
-- **Inline Editing**: Edit a task's title (`T`) and priority directly in the task panel
+- **Inline Editing**: Edit a task's title (`T`) and priority directly in the task panel; priority can be cleared entirely, not just changed
 - **Notes Management**: Add, view, and delete task annotations with configurable sort order (newest/oldest first); new-note form repositions to match sort order
 - **Tag Management**: Add and remove tags directly in the task panel without using the TUI
 - **URL Management**: Add or edit a task's URL link directly in the task panel without using the TUI
-- **Keyboard Shortcuts**: `a` to open the info panel and focus the new note field; `T` to edit the title; Cmd+Enter to save; standard nav shortcuts (p/n/d/space/i/l)
+- **Keyboard Shortcuts**: `a` to open the info panel and focus the new note field; `T` to edit the title; `S` to jump between the timer and the List view; Cmd+Enter to save; standard nav shortcuts (p/n/d/space/i/l)
+- **Mobile / Touch Support**: The timer, details panel, and List view adapt to phone-sized screens (portrait and landscape) — thumb-sized controls, a swipe-to-dismiss Details bottom sheet, tap-to-expand notes, and a touch-friendly priority picker. Fully additive: desktop behavior and layout are unchanged
+- **Click-to-copy**: Task IDs, note text, and the List view's stats summary all copy to the clipboard on click/tap
 - **Localhost by default**: Binds to `127.0.0.1` so a fresh install is reachable only from the machine it runs on. LAN access is opt-in and requires a password (see [Configuration](#configuration))
 - **Configurable Port**: Set `ONETASK_PORT` to run on a port other than 5000
 
@@ -105,9 +107,10 @@ See [Optional customizations](#optional-customizations) below for further tuning
    - Click the timer to pause/resume
    - Use Previous/Next buttons to navigate tasks
    - Click the task ID to copy it to clipboard for terminal use
-   - Click "List" (upper left) to browse the full task list along with pending/completed-today/estimate-remaining stats
+   - Click "List" (upper left) to browse the full task list along with pending/completed-today/estimate-remaining stats; "Return to oneTask" (also upper left, on the List view) or the `S` key jumps back
    - Click "Complete Task" to mark tasks as done
    - Click "Uncomplete Task" to reopen completed tasks
+   - On a phone, tap "Details" (below the timer controls) to open the same task panel as a bottom sheet — swipe down or tap outside it to dismiss
 
 ## Configuration
 
@@ -278,6 +281,12 @@ Sets the due date for a task. Body: `{"due_date": "YYYY-MM-DD"}`.
 
 ### DELETE /task/\<id\>/due
 Removes the due date from a task.
+
+### POST /task/\<id\>/priority
+Sets a task's priority. Body: `{"priority": "H"}` (or whatever value from your configured `uda.priority.values` scheme — native H/M/L by default). Rejected with a 400 if the value isn't one of the resolved scheme's actual values.
+
+### DELETE /task/\<id\>/priority
+Clears a task's priority entirely.
 
 ### GET /task/\<id\>/url
 Returns the URL stored on a task.
