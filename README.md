@@ -122,6 +122,7 @@ OneTask is configured through environment variables.
 | `ONETASK_HOST` | `127.0.0.1` | Interface to bind to. Set to `0.0.0.0` to enable LAN access (requires `ONETASK_PASSWORD`) |
 | `ONETASK_PASSWORD` | _(unset)_ | Password required to access the app. **Mandatory** for LAN access |
 | `ONETASK_DEBUG` | _(off)_ | Enables Flask's debug mode/reloader. **Only takes effect when bound to localhost** — if set while bound beyond localhost, it is force-disabled with a notice, since the debugger allows remote code execution |
+| `ONETASK_DEFAULT_DURATION` | `25min` | Timer length used for a task with no `estimate` value (see [Time Estimate Formats](#time-estimate-formats) for accepted formats). Set to `0` to start counting up from 0:00 immediately instead of counting down first. Missing or unparseable values fall back to the 25-minute built-in default |
 
 ### Enabling access from your phone / other devices
 

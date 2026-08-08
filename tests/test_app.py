@@ -182,6 +182,91 @@ class TestFormatTaskForDisplay:
         assert result['estimate_is_default'] is True
         assert result['total_seconds'] == DEFAULT_ESTIMATE_SECONDS
 
+    def test_configured_default_used_without_notice(self):
+        # ON-92: an admin-configured default is intended behavior, not a
+        # misconfiguration, so the notice is suppressed even though the
+        # task itself has no estimate.
+        task = {**SAMPLE_TASK, 'estimate': ''}
+        result = format_task_for_display(
+            task, default_duration_seconds=300, default_duration_configured=True)
+        assert result['estimate_is_default'] is False
+        assert result['total_seconds'] == 300
+
+    def test_configured_default_of_zero_means_count_up_without_notice(self):
+        # ON-92: 0 is a legitimate configured value (start counting up
+        # immediately), distinct from an unconfigured dead timer.
+        task = {**SAMPLE_TASK, 'estimate': ''}
+        result = format_task_for_display(
+            task, default_duration_seconds=0, default_duration_configured=True)
+        assert result['estimate_is_default'] is False
+        assert result['total_seconds'] == 0
+
+    def test_unconfigured_default_still_shows_notice(self):
+        # Default params (no ON-92 override in play) behave exactly like
+        # ON-84: built-in length, notice shown.
+        from app import DEFAULT_ESTIMATE_SECONDS
+        task = {**SAMPLE_TASK, 'estimate': ''}
+        result = format_task_for_display(task)
+        assert result['estimate_is_default'] is True
+        assert result['total_seconds'] == DEFAULT_ESTIMATE_SECONDS
+
+    def test_real_task_estimate_wins_over_configured_default(self):
+        # A task's own estimate always takes priority over any default.
+        result = format_task_for_display(
+            SAMPLE_TASK, default_duration_seconds=300, default_duration_configured=True)
+        assert result['estimate_is_default'] is False
+        assert result['total_seconds'] == 1800
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: get_default_duration_seconds (ON-92)
+# ---------------------------------------------------------------------------
+
+class TestGetDefaultDurationSeconds:
+    def test_unset_falls_back_to_builtin_unconfigured(self, monkeypatch):
+        from app import DEFAULT_ESTIMATE_SECONDS, get_default_duration_seconds
+        monkeypatch.delenv('ONETASK_DEFAULT_DURATION', raising=False)
+        seconds, configured = get_default_duration_seconds()
+        assert seconds == DEFAULT_ESTIMATE_SECONDS
+        assert configured is False
+
+    def test_configured_duration_string_is_parsed(self, monkeypatch):
+        from app import get_default_duration_seconds
+        monkeypatch.setenv('ONETASK_DEFAULT_DURATION', '5min')
+        seconds, configured = get_default_duration_seconds()
+        assert seconds == 300
+        assert configured is True
+
+    def test_configured_zero_is_honored(self, monkeypatch):
+        from app import get_default_duration_seconds
+        monkeypatch.setenv('ONETASK_DEFAULT_DURATION', '0')
+        seconds, configured = get_default_duration_seconds()
+        assert seconds == 0
+        assert configured is True
+
+    def test_garbage_with_no_digits_falls_back_unconfigured(self, monkeypatch):
+        # Must not be mistaken for a deliberate 0=count-up value — the
+        # shared parser would otherwise silently resolve "banana" to 0.
+        from app import DEFAULT_ESTIMATE_SECONDS, get_default_duration_seconds
+        monkeypatch.setenv('ONETASK_DEFAULT_DURATION', 'banana')
+        seconds, configured = get_default_duration_seconds()
+        assert seconds == DEFAULT_ESTIMATE_SECONDS
+        assert configured is False
+
+    def test_blank_falls_back_unconfigured(self, monkeypatch):
+        from app import DEFAULT_ESTIMATE_SECONDS, get_default_duration_seconds
+        monkeypatch.setenv('ONETASK_DEFAULT_DURATION', '   ')
+        seconds, configured = get_default_duration_seconds()
+        assert seconds == DEFAULT_ESTIMATE_SECONDS
+        assert configured is False
+
+    def test_iso8601_duration_format_accepted(self, monkeypatch):
+        from app import get_default_duration_seconds
+        monkeypatch.setenv('ONETASK_DEFAULT_DURATION', 'PT25M')
+        seconds, configured = get_default_duration_seconds()
+        assert seconds == 1500
+        assert configured is True
+
 
 # ---------------------------------------------------------------------------
 # Unit tests: sorting_key

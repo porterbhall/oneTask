@@ -92,6 +92,24 @@ def get_tasks_from_report(report_name='next'):
 # (stock TaskWarrior has no `estimate` field, so there's nothing per-task to read).
 DEFAULT_ESTIMATE_SECONDS = 25 * 60
 
+def get_default_duration_seconds():
+    """(seconds, configured) for the optional ONETASK_DEFAULT_DURATION
+    override (ON-92) — lets users tune the un-estimated-task fallback
+    instead of being stuck with DEFAULT_ESTIMATE_SECONDS, including 0 to
+    start counting up immediately rather than counting down first.
+
+    Requires at least one digit to count as 'configured': the shared
+    duration parser silently returns 0 for pure garbage (no digits at
+    all), which would otherwise be indistinguishable from a deliberate
+    0=count-up value. Unset or unparseable both fall back to the
+    built-in default, unconfigured, so the caller still shows the
+    'set an estimate' notice rather than pretending this was intentional.
+    """
+    raw = os.environ.get('ONETASK_DEFAULT_DURATION', '').strip()
+    if not raw or not any(c.isdigit() for c in raw):
+        return DEFAULT_ESTIMATE_SECONDS, False
+    return convert_taskwarrior_estimate_to_seconds(raw), True
+
 def estimate_uda_defined(config):
     """Whether the `estimate` UDA is configured, per resolved TaskWarrior config (ON-66/A2)."""
     return any(key.startswith('uda.estimate.') for key in config)
@@ -143,7 +161,9 @@ def priority_rank(value, priority_values):
     except ValueError:
         return float('inf')
 
-def format_task_for_display(task, estimate_configured=True, priority_values=None):
+def format_task_for_display(task, estimate_configured=True, priority_values=None,
+                             default_duration_seconds=DEFAULT_ESTIMATE_SECONDS,
+                             default_duration_configured=False):
     """Convert TaskWarrior task to Milkbox-compatible format"""
     if priority_values is None:
         priority_values = list(DEFAULT_PRIORITY_VALUES)
@@ -166,9 +186,16 @@ def format_task_for_display(task, estimate_configured=True, priority_values=None
         estimate = ''
         total_seconds = 0
 
-    estimate_is_default = not total_seconds
-    if estimate_is_default:
-        total_seconds = DEFAULT_ESTIMATE_SECONDS
+    if total_seconds:
+        estimate_is_default = False
+    else:
+        # Falling back — to an admin-configured default if there is one
+        # (ON-92; may itself be 0, meaning count up immediately), otherwise
+        # the built-in length. A configured default is intended behavior,
+        # so the notice below only fires for the true "nothing configured
+        # anywhere" case.
+        total_seconds = default_duration_seconds
+        estimate_is_default = not default_duration_configured
 
     # Create short task identifier from UUID (first 8 characters)
     uuid = task.get('uuid', '')
@@ -269,6 +296,7 @@ def show_list():
         estimate_configured = estimate_uda_defined(config)
         priority_values = get_priority_values(config)
         url_configured = url_uda_defined(config)
+        default_duration_seconds, default_duration_configured = get_default_duration_seconds()
 
         # ON-69/A5: an unknown report (typo, or a custom report a stock
         # install doesn't have) falls back to 'next' with a clear notice,
@@ -284,7 +312,9 @@ def show_list():
         else:
             # Convert TaskWarrior tasks to Milkbox format
             # Note: raw_tasks are already sorted by urgency from get_tasks_from_report()
-            tasks = [format_task_for_display(task, estimate_configured, priority_values) for task in raw_tasks]
+            tasks = [format_task_for_display(task, estimate_configured, priority_values,
+                                              default_duration_seconds, default_duration_configured)
+                     for task in raw_tasks]
 
         print(f"DEBUG: Formatted {len(tasks)} tasks for display")
 
@@ -394,9 +424,12 @@ def show_task_list():
         config = get_resolved_config()
         estimate_configured = estimate_uda_defined(config)
         priority_values = get_priority_values(config)
+        default_duration_seconds, default_duration_configured = get_default_duration_seconds()
         report_name, report_invalid = resolve_report_name(requested_report_name, get_report_names(config))
         raw_tasks = get_tasks_from_report(report_name)
-        tasks = [format_task_for_display(task, estimate_configured, priority_values) for task in raw_tasks] if raw_tasks else []
+        tasks = [format_task_for_display(task, estimate_configured, priority_values,
+                                          default_duration_seconds, default_duration_configured)
+                 for task in raw_tasks] if raw_tasks else []
         for task in tasks:
             task['due_date_display'] = format_due_date_display(task['due_date'])
             task['estimate_display'] = format_estimate_display(task['total_seconds'])
