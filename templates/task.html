@@ -112,16 +112,10 @@
         <!-- Priority Section -->
         <div class="details-section">
             <h4>Priority</h4>
-            <div id="priority-display"></div>
-            <div class="priority-edit-form" id="priority-edit-form" style="display: none;">
-                <select id="priority-select" class="priority-select"></select>
-                <div class="priority-form-buttons">
-                    <button id="save-priority">Save</button>
-                    <button id="cancel-priority">Cancel</button>
-                </div>
-            </div>
-            <!-- Mobile-only touch alternative to the select+Edit flow above
-                 (ON-75); saves immediately on tap, no separate Save step. -->
+            <!-- Immediate-save segmented control (ON-75 for mobile, ON-86
+                 for desktop parity): tap/click a value, saves immediately,
+                 no separate Edit/Save round-trip. The active segment is
+                 the readout — no separate display element needed. -->
             <div id="priority-segmented" class="priority-segmented"></div>
         </div>
 
@@ -632,9 +626,7 @@ function updateCountdown() {
         document.getElementById('tag-add-form').style.display = 'none';
         document.getElementById('new-tag-input').value = '';
         updateTagsDisplay(false);
-        updatePriorityDisplay();
         updatePrioritySegmented();
-        hidePriorityForm();
         // ON-68/A4: hide the whole URL section when the url UDA isn't
         // configured, rather than offer a control that can only ever fail.
         document.getElementById('url-section').style.display = urlConfigured ? '' : 'none';
@@ -1213,75 +1205,16 @@ function updateCountdown() {
     }
 
     // Priority edit functions (ON-29, updated for ON-67/A3 to read the
-    // user's actual priority scheme instead of a hardcoded 1/2/3)
-
-    // High/Medium/Low descriptors only make sense for a 3-level scheme
-    // (covers both native H/M/L and Porter's custom 1/2/3) — anything else
-    // just shows the raw configured value.
-    function priorityLabel(value) {
-        const index = priorityValues.indexOf(value);
-        if (priorityValues.length === 3 && index !== -1) {
-            const descriptors = ['High', 'Medium', 'Low'];
-            return value + ' (' + descriptors[index] + ')';
-        }
-        return String(value);
-    }
+    // user's actual priority scheme instead of a hardcoded 1/2/3; ON-86
+    // replaced the old select+Edit/Save form with the segmented control
+    // below on desktop too, so it's now the only editor on any viewport)
 
     function formatTaskTitle(priority, name) {
         return priority ? (priority + ': ' + name) : name;
     }
 
-    function populatePriorityOptions() {
-        const select = document.getElementById('priority-select');
-        select.innerHTML = '';
-        priorityValues.forEach(function(value) {
-            const option = document.createElement('option');
-            option.value = value;
-            option.textContent = priorityLabel(value);
-            select.appendChild(option);
-        });
-    }
-
-    function updatePriorityDisplay() {
-        const priorityDisplay = document.getElementById('priority-display');
-        const priority = task_priorities[currentTaskIndex];
-
-        priorityDisplay.innerHTML = '';
-
-        const priorityItem = document.createElement('div');
-        priorityItem.className = 'priority-item';
-        priorityItem.textContent = priority ? priorityLabel(priority) : 'No priority set';
-        priorityDisplay.appendChild(priorityItem);
-
-        // Unknown/empty scheme (no priority_values resolved) — degrade to
-        // read-only rather than offering a form that can't validate (ON-67/A3).
-        if (priorityValues.length > 0) {
-            const editBtn = document.createElement('button');
-            editBtn.className = 'url-action-btn';
-            editBtn.textContent = 'Edit';
-            editBtn.onclick = showPriorityForm;
-            priorityDisplay.appendChild(editBtn);
-        }
-    }
-
-    function showPriorityForm() {
-        if (priorityValues.length === 0) return;
-        const current = task_priorities[currentTaskIndex];
-        document.getElementById('priority-select').value = priorityValues.includes(current) ? current : priorityValues[0];
-        document.getElementById('priority-edit-form').style.display = 'block';
-    }
-
-    function hidePriorityForm() {
-        document.getElementById('priority-edit-form').style.display = 'none';
-    }
-
-    function saveTaskPriority() {
-        const newPriority = document.getElementById('priority-select').value;
-        applyTaskPriority(newPriority);
-    }
-
-    // Shared by the desktop select+Save form and the mobile segmented
-    // control (ON-75) — same endpoint, same state update either way.
+    // Shared by the segmented control's set and clear actions — same
+    // endpoint, same state update either way.
     function applyTaskPriority(newPriority) {
         const taskId = task_id[currentTaskIndex];
         fetch(`/task/${taskId}/priority`, {
@@ -1295,8 +1228,6 @@ function updateCountdown() {
                 task_priorities[currentTaskIndex] = newPriority;
                 formatted_tasks[currentTaskIndex] = formatTaskTitle(newPriority, task_names[currentTaskIndex]);
                 document.querySelector('.task-name').innerHTML = formatted_tasks[currentTaskIndex];
-                hidePriorityForm();
-                updatePriorityDisplay();
                 updatePrioritySegmented();
             } else {
                 alert('Error saving priority: ' + data.error);
@@ -1320,7 +1251,6 @@ function updateCountdown() {
                 task_priorities[currentTaskIndex] = '';
                 formatted_tasks[currentTaskIndex] = formatTaskTitle('', task_names[currentTaskIndex]);
                 document.querySelector('.task-name').innerHTML = formatted_tasks[currentTaskIndex];
-                updatePriorityDisplay();
                 updatePrioritySegmented();
             } else {
                 alert('Error clearing priority: ' + data.error);
@@ -1332,15 +1262,16 @@ function updateCountdown() {
         });
     }
 
-    // Mobile touch alternative to the select+Edit/Save flow: tapping a
-    // segment saves immediately, no separate save step.
+    // Immediate-save priority control: tapping/clicking a segment saves
+    // right away, no separate save step (ON-75 for mobile, ON-86 for
+    // desktop parity).
     function updatePrioritySegmented() {
         const container = document.getElementById('priority-segmented');
         if (!container) return;
         container.innerHTML = '';
 
-        // Degrade like updatePriorityDisplay() does: unknown/empty scheme
-        // can't validate a choice, so offer nothing rather than a broken form.
+        // Unknown/empty scheme (no priority_values resolved) — degrade to
+        // nothing rather than offering a choice that can't validate (ON-67/A3).
         if (priorityValues.length === 0) return;
 
         const current = task_priorities[currentTaskIndex];
@@ -1387,8 +1318,6 @@ function updateCountdown() {
         if (event.key === 'Enter') { event.preventDefault(); saveTitleEdit(); }
         if (event.key === 'Escape') { exitTitleEditMode(); }
     });
-    document.getElementById('save-priority').onclick = saveTaskPriority;
-    document.getElementById('cancel-priority').onclick = hidePriorityForm;
     document.getElementById('save-url').onclick = saveUrl;
     document.getElementById('cancel-url').onclick = hideUrlForm;
     document.getElementById('save-due-date').onclick = saveDueDate;
@@ -1448,7 +1377,6 @@ function updateCountdown() {
     }
 
     // Start the countdown
-    populatePriorityOptions();
     updateCountdown();
     updateLink();
     updateTaskId();

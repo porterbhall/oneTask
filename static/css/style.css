@@ -89,53 +89,13 @@ body {
     background-color: #5d5d5d;
 }
 
-.priority-item {
-    display: inline-block;
-    background-color: #363636;
-    padding: 10px;
-    border-radius: 3px;
-    color: #e6d7d7;
-    margin-bottom: 8px;
-}
-
-.priority-edit-form {
-    margin-top: 8px;
-}
-
-.priority-select {
-    background-color: #363636;
-    color: #c2c2c2;
-    border: 1px solid #4d4d4d;
-    border-radius: 3px;
-    padding: 8px;
-    font-family: inherit;
-    font-size: 13px;
-    margin-bottom: 8px;
-}
-
-.priority-form-buttons {
+/* Immediate-save priority control (ON-75 for mobile, ON-86 for desktop
+   parity) — the only priority editor now, on any viewport. Segment sizing
+   stays touch-sized even on desktop; that's the parity this brings. */
+.priority-segmented {
     display: flex;
     gap: 8px;
-}
-
-.priority-form-buttons button {
-    background-color: #4d4d4d;
-    color: #c2c2c2;
-    border: none;
-    border-radius: 3px;
-    padding: 6px 14px;
-    cursor: pointer;
-    font-size: 13px;
-}
-
-.priority-form-buttons button:hover {
-    background-color: #5d5d5d;
-}
-
-/* Touch alternative to the select+Edit/Save form above (ON-75) — hidden on
-   desktop, shown in the mobile breakpoint further down. */
-.priority-segmented {
-    display: none;
+    flex-wrap: wrap;
 }
 
 /* Title row inside the details sheet (ON-75) — touch equivalent of the "T"
@@ -394,18 +354,9 @@ body {
         font-size: 18px;
     }
 
-    /* Mobile priority segmented control replaces the desktop select+Edit
-       flow (ON-75); tapping a segment saves immediately. */
-    #priority-display {
-        display: none;
-    }
-
-    .priority-segmented {
-        display: flex;
-        gap: 8px;
-        flex-wrap: wrap;
-    }
-
+    /* Segment sizing for touch targets — base layout (display/gap/wrap)
+       now lives outside this breakpoint since ON-86 made the segmented
+       control universal, not mobile-only. */
     .priority-segment {
         flex: 1;
         min-width: 44px;
