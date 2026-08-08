@@ -1,6 +1,6 @@
 # OneTask
 
-> v2.3.0 · source-available, AGPL-3.0
+> v2.4.0 · source-available, AGPL-3.0
 
 A Pomodoro-style task management web application that wraps [TaskWarrior](https://taskwarrior.org/) in a focused, timer-based interface. It shows you one task at a time, counts down its time estimate, and lets you stay in flow without switching back to the terminal.
 
@@ -16,7 +16,7 @@ OneTask is a personal, single-user tool shared in case it's useful to you. See [
 - **Visual Indicators**: Red background for overdue tasks
 - **Task Completion**: Mark tasks complete/incomplete directly from the interface
 - **Report Support**: Works with any configured TaskWarrior report — built-ins like `next` and `ready` work out of the box; a personal report like `focus` needs to be defined first (see [Optional customizations](#optional-customizations))
-- **Inline Editing**: Edit a task's title (`T`) and priority directly in the task panel; priority can be cleared entirely, not just changed
+- **Inline Editing**: Edit a task's title (`T`) and priority directly in the task panel, with the same immediate-save priority control (click a value, no separate Save step) on desktop and mobile; priority can be cleared entirely, not just changed
 - **Notes Management**: Add, view, and delete task annotations with configurable sort order (newest/oldest first); new-note form repositions to match sort order
 - **Tag Management**: Add and remove tags directly in the task panel without using the TUI
 - **URL Management**: Add or edit a task's URL link directly in the task panel without using the TUI
@@ -25,6 +25,7 @@ OneTask is a personal, single-user tool shared in case it's useful to you. See [
 - **Click-to-copy**: Task IDs, note text, and the List view's stats summary all copy to the clipboard on click/tap
 - **Localhost by default**: Binds to `127.0.0.1` so a fresh install is reachable only from the machine it runs on. LAN access is opt-in and requires a password (see [Configuration](#configuration))
 - **Configurable Port**: Set `ONETASK_PORT` to run on a port other than 5000
+- **Configurable Default Duration**: Set `ONETASK_DEFAULT_DURATION` to control the fallback timer length for tasks with no `estimate` value — including `0` to start counting up immediately instead of counting down first (see [Configuration](#configuration))
 
 ## Requirements
 
@@ -74,7 +75,7 @@ uda.url.type=string
 uda.url.label=URL
 ```
 
-- **`estimate`** fuels the Pomodoro countdown — set it per task with `task <id> modify estimate:25min` (TaskWarrior's own CLI parses bare `25m` as 25 *months*, not minutes — spell out `min` or use ISO 8601 `PT25M`). Without this UDA configured, OneTask falls back to a 25-minute default timer and shows a "no estimate configured" notice, instead of a dead 0:00 countdown.
+- **`estimate`** fuels the Pomodoro countdown — set it per task with `task <id> modify estimate:25min` (TaskWarrior's own CLI parses bare `25m` as 25 *months*, not minutes — spell out `min` or use ISO 8601 `PT25M`). Without this UDA configured — or if it's configured but a specific task has no value set — OneTask falls back to a default timer of 25 minutes with a "no estimate configured" notice, or falls back silently to your own [`ONETASK_DEFAULT_DURATION`](#configuration) if you've set one.
 - **`url`** lets you attach a link to a task and open it from the timer view. Without this UDA configured, the URL field is hidden entirely from the details panel — you won't see a broken control.
 
 See [Optional customizations](#optional-customizations) below for further tuning once the basics are working.
