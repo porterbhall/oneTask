@@ -163,6 +163,25 @@ class TestFormatTaskForDisplay:
         assert result['estimate_is_default'] is True
         assert result['total_seconds'] == DEFAULT_ESTIMATE_SECONDS
 
+    def test_estimate_configured_but_task_value_missing_falls_back_to_default(self):
+        # ON-84: the UDA is configured, but this specific task never got a
+        # value set — same dead-timer symptom as the UDA being absent
+        # entirely, so it gets the same default-plus-notice treatment.
+        from app import DEFAULT_ESTIMATE_SECONDS
+        task = {**SAMPLE_TASK, 'estimate': ''}
+        result = format_task_for_display(task)
+        assert result['estimate_is_default'] is True
+        assert result['total_seconds'] == DEFAULT_ESTIMATE_SECONDS
+
+    def test_estimate_configured_but_task_value_unparseable_falls_back_to_default(self):
+        # An unparseable value (no digits/units recognized) also resolves
+        # to 0 seconds and should degrade the same way, not hang or crash.
+        from app import DEFAULT_ESTIMATE_SECONDS
+        task = {**SAMPLE_TASK, 'estimate': 'garbage'}
+        result = format_task_for_display(task)
+        assert result['estimate_is_default'] is True
+        assert result['total_seconds'] == DEFAULT_ESTIMATE_SECONDS
+
 
 # ---------------------------------------------------------------------------
 # Unit tests: sorting_key

@@ -155,12 +155,19 @@ def format_task_for_display(task, estimate_configured=True, priority_values=None
 
     # Get estimate and convert to seconds. If the estimate UDA isn't configured
     # at all, there's no per-task value to read, so fall back to a default
-    # Pomodoro length rather than a dead 0-second timer.
+    # Pomodoro length rather than a dead 0-second timer. The UDA can also be
+    # configured but left unset (or unparseable) on a specific task — same
+    # dead-timer symptom, different cause — so treat a 0-second result the
+    # same way (ON-84).
     if estimate_configured:
         estimate = task.get('estimate', '')
         total_seconds = convert_taskwarrior_estimate_to_seconds(estimate)
     else:
         estimate = ''
+        total_seconds = 0
+
+    estimate_is_default = not total_seconds
+    if estimate_is_default:
         total_seconds = DEFAULT_ESTIMATE_SECONDS
 
     # Create short task identifier from UUID (first 8 characters)
@@ -176,7 +183,7 @@ def format_task_for_display(task, estimate_configured=True, priority_values=None
         "task_id": task.get('uuid', ''),  # Use UUID as primary identifier
         "uuid": task.get('uuid', ''),
         "total_seconds": total_seconds,
-        "estimate_is_default": not estimate_configured,
+        "estimate_is_default": estimate_is_default,
         "task_url": task.get('url', 'none'),
         "short_id": short_id,
         "annotations": task.get('annotations', []),
