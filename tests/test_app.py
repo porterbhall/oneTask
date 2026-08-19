@@ -37,7 +37,14 @@ def mock_result(returncode=0, stdout='', stderr=''):
 
 
 def task_args(*args):
-    """Expected subprocess.run argv for a `task` invocation, RC overrides included."""
+    """Expected subprocess.run argv for a read/query `task` invocation — RC
+    overrides plus rc.hooks=off, since reads stay hook-free (ON-65/ON-93)."""
+    return ['task'] + RC_OVERRIDES + ['rc.hooks=off'] + list(args)
+
+
+def write_task_args(*args):
+    """Expected subprocess.run argv for a mutating `task` invocation — RC
+    overrides only, with hooks left enabled so on-modify/on-add fire (ON-93)."""
     return ['task'] + RC_OVERRIDES + list(args)
 
 
@@ -337,7 +344,24 @@ class TestRunTaskCommand:
         argv = mock_run.call_args[0][0]
         assert argv[0] == 'task'
         assert argv[1:1 + len(RC_OVERRIDES)] == RC_OVERRIDES
-        assert argv[1 + len(RC_OVERRIDES):] == ['export']
+        assert argv[1 + len(RC_OVERRIDES):] == ['rc.hooks=off', 'export']
+
+    @patch('app.subprocess.run')
+    def test_hooks_true_omits_rc_hooks_off(self, mock_run):
+        # ON-93: mutating calls must not suppress on-modify/on-add hooks.
+        from app import run_task_command
+        mock_run.return_value = mock_result(stdout='')
+        run_task_command(['1', 'done'], hooks=True)
+        argv = mock_run.call_args[0][0]
+        assert 'rc.hooks=off' not in argv
+        assert argv == ['task'] + RC_OVERRIDES + ['1', 'done']
+
+    @patch('app.subprocess.run')
+    def test_hooks_false_is_the_default(self, mock_run):
+        from app import run_task_command
+        mock_run.return_value = mock_result(stdout='')
+        run_task_command(['export'])
+        assert 'rc.hooks=off' in mock_run.call_args[0][0]
 
 
 class TestGetResolvedConfig:
@@ -837,7 +861,7 @@ class TestCapture:
         mock_run.return_value = mock_result(stdout='Created task 5.')
         response = client.post('/capture', json={'task': 'Buy milk +shopping'})
         assert response.status_code == 200
-        assert mock_run.call_args[0][0] == task_args('add', 'Buy', 'milk', '+shopping')
+        assert mock_run.call_args[0][0] == write_task_args('add', 'Buy', 'milk', '+shopping')
 
     @patch('app.subprocess.run')
     def test_happy_path_form_data(self, mock_run, client):
@@ -891,7 +915,7 @@ class TestAddAnnotation:
         response = client.post('/task/abc12345/annotations', json={'annotation': 'My note'})
         assert response.status_code == 200
         assert response.get_json()['status'] == 'success'
-        assert mock_run.call_args[0][0] == task_args('abc12345', 'annotate', 'My note')
+        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'annotate', 'My note')
 
     def test_missing_annotation_returns_400(self, client):
         response = client.post('/task/abc12345/annotations', json={})
@@ -914,7 +938,7 @@ class TestDeleteAnnotation:
         mock_run.return_value = mock_result(stdout='Denotated.')
         response = client.delete('/task/abc12345/annotations/my%20note')
         assert response.status_code == 200
-        assert mock_run.call_args[0][0] == task_args('abc12345', 'denotate', 'my note')
+        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'denotate', 'my note')
 
     @patch('app.subprocess.run')
     def test_special_characters_decoded_correctly(self, mock_run, client):
@@ -922,7 +946,7 @@ class TestDeleteAnnotation:
         mock_run.return_value = mock_result(stdout='Denotated.')
         response = client.delete('/task/abc12345/annotations/note%20with%20%22quotes%22')
         assert response.status_code == 200
-        assert mock_run.call_args[0][0] == task_args('abc12345', 'denotate', 'note with "quotes"')
+        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'denotate', 'note with "quotes"')
 
     @patch('app.subprocess.run')
     def test_subprocess_failure_returns_500(self, mock_run, client):
@@ -968,7 +992,7 @@ class TestSetDueDate:
         mock_run.return_value = mock_result(stdout='Modified 1 task.')
         response = client.post('/task/abc12345/due', json={'due_date': '2026-04-15'})
         assert response.status_code == 200
-        assert mock_run.call_args[0][0] == task_args('abc12345', 'modify', 'due:2026-04-15')
+        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'modify', 'due:2026-04-15')
 
     def test_missing_due_date_returns_400(self, client):
         response = client.post('/task/abc12345/due', json={})
@@ -985,7 +1009,7 @@ class TestRemoveDueDate:
         mock_run.return_value = mock_result(stdout='Modified 1 task.')
         response = client.delete('/task/abc12345/due')
         assert response.status_code == 200
-        assert mock_run.call_args[0][0] == task_args('abc12345', 'modify', 'due:')
+        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'modify', 'due:')
 
     @patch('app.subprocess.run')
     def test_subprocess_failure_returns_500(self, mock_run, client):
@@ -1041,7 +1065,7 @@ class TestSetTaskUrl:
         ]
         response = client.post('/task/abc12345/url', json={'url': 'https://example.com'})
         assert response.status_code == 200
-        assert mock_run.call_args[0][0] == task_args('abc12345', 'modify', 'url:https://example.com')
+        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'modify', 'url:https://example.com')
 
     def test_missing_url_returns_400(self, client):
         response = client.post('/task/abc12345/url', json={})
@@ -1088,7 +1112,7 @@ class TestRemoveTaskUrl:
         ]
         response = client.delete('/task/abc12345/url')
         assert response.status_code == 200
-        assert mock_run.call_args[0][0] == task_args('abc12345', 'modify', 'url:')
+        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'modify', 'url:')
 
     @patch('app.subprocess.run')
     def test_url_uda_not_configured_returns_400_without_firing_modify(self, mock_run, client):
@@ -1177,7 +1201,7 @@ class TestSetTaskDescription:
         response = client.post('/task/abc12345/description', json={'description': 'New task name'})
         assert response.status_code == 200
         assert response.get_json()['status'] == 'success'
-        assert mock_run.call_args[0][0] == task_args('abc12345', 'modify', 'description:New task name')
+        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'modify', 'description:New task name')
 
     def test_missing_description_returns_400(self, client):
         response = client.post('/task/abc12345/description', json={})
@@ -1214,7 +1238,7 @@ class TestSetTaskPriority:
         response = client.post('/task/abc12345/priority', json={'priority': '1'})
         assert response.status_code == 200
         assert response.get_json()['status'] == 'success'
-        assert mock_run.call_args[0][0] == task_args('abc12345', 'modify', 'priority:1')
+        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'modify', 'priority:1')
 
     @patch('app.subprocess.run')
     def test_happy_path_native_scheme(self, mock_run, client):
@@ -1224,7 +1248,7 @@ class TestSetTaskPriority:
         ]
         response = client.post('/task/abc12345/priority', json={'priority': 'H'})
         assert response.status_code == 200
-        assert mock_run.call_args[0][0] == task_args('abc12345', 'modify', 'priority:H')
+        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'modify', 'priority:H')
 
     def test_missing_priority_returns_400(self, client):
         response = client.post('/task/abc12345/priority', json={})
@@ -1282,7 +1306,7 @@ class TestRemoveTaskPriority:
         mock_run.return_value = mock_result(stdout='Modified 1 task.')
         response = client.delete('/task/abc12345/priority')
         assert response.status_code == 200
-        assert mock_run.call_args[0][0] == task_args('abc12345', 'modify', 'priority:')
+        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'modify', 'priority:')
 
     @patch('app.subprocess.run')
     def test_subprocess_failure_returns_500(self, mock_run, client):

@@ -25,14 +25,23 @@ def require_password():
 
 # Global overrides applied to every invocation so behavior doesn't ride on the
 # user's interactive .taskrc settings (confirmation prompts, nag/verbose lines
-# polluting parsed output, hooks firing as a side effect of a web request).
-RC_OVERRIDES = ['rc.confirmation=off', 'rc.nag=', 'rc.verbose=nothing', 'rc.hooks=off']
+# polluting parsed output). rc.hooks=off is applied separately, per-call, by
+# run_task_command — see its `hooks` parameter (ON-93).
+RC_OVERRIDES = ['rc.confirmation=off', 'rc.nag=', 'rc.verbose=nothing']
 
-def run_task_command(args, timeout=30):
-    """Run a TaskWarrior command via subprocess with timeout"""
+def run_task_command(args, timeout=30, hooks=False):
+    """Run a TaskWarrior command via subprocess with timeout.
+
+    hooks=False (default) appends rc.hooks=off, keeping read/query calls
+    (export, _show, completed, ...) from firing the user's on-launch/on-exit
+    hooks on every page load (ON-65). Mutating calls — anything that changes
+    task state — must pass hooks=True so on-modify/on-add hooks fire the same
+    way they do from the CLI (ON-93).
+    """
+    overrides = RC_OVERRIDES if hooks else RC_OVERRIDES + ['rc.hooks=off']
     try:
         result = subprocess.run(
-            ['task'] + RC_OVERRIDES + args,
+            ['task'] + overrides + args,
             capture_output=True,
             text=True,
             timeout=timeout
@@ -479,7 +488,7 @@ def complete_task():
         print(f"DEBUG: Completing task {task_id}")
         
         # Complete the task via TaskWarrior
-        result = run_task_command([str(task_id), 'done'])
+        result = run_task_command([str(task_id), 'done'], hooks=True)
         
         if result.returncode != 0:
             error_msg = f"TaskWarrior completion failed: {result.stderr}"
@@ -521,7 +530,7 @@ def uncomplete_task():
         
         # TaskWarrior 3.x doesn't have a direct uncomplete command
         # We need to modify the task to set status back to pending
-        result = run_task_command([str(task_id), 'modify', 'status:pending'])
+        result = run_task_command([str(task_id), 'modify', 'status:pending'], hooks=True)
         
         if result.returncode != 0:
             error_msg = f"TaskWarrior uncomplete failed: {result.stderr}"
@@ -563,7 +572,7 @@ def capture_task():
         
         # Add the task via TaskWarrior
         # Split the task text and add it using 'task add'
-        result = run_task_command(['add'] + task_text.split())
+        result = run_task_command(['add'] + task_text.split(), hooks=True)
         
         if result.returncode != 0:
             error_msg = f"TaskWarrior add failed: {result.stderr}"
@@ -666,7 +675,7 @@ def add_task_annotation(task_id):
             return jsonify({'error': 'Annotation text required', 'status': 'error'}), 400
         
         # Add annotation via TaskWarrior
-        result = run_task_command([str(task_id), 'annotate', annotation_text])
+        result = run_task_command([str(task_id), 'annotate', annotation_text], hooks=True)
         
         if result.returncode != 0:
             error_msg = f"TaskWarrior annotate failed: {result.stderr}"
@@ -690,7 +699,7 @@ def delete_task_annotation(task_id, annotation_text):
         
         print(f"DEBUG: Attempting to delete annotation: '{decoded_text}' from task {task_id}")
         
-        result = run_task_command([str(task_id), 'denotate', decoded_text])
+        result = run_task_command([str(task_id), 'denotate', decoded_text], hooks=True)
         
         if result.returncode != 0:
             error_msg = f"TaskWarrior denotate failed: {result.stderr.strip()}"
@@ -738,7 +747,7 @@ def set_task_due_date(task_id):
             return jsonify({'error': 'Due date required', 'status': 'error'}), 400
         
         # Set due date via TaskWarrior
-        result = run_task_command([str(task_id), 'modify', f'due:{due_date}'])
+        result = run_task_command([str(task_id), 'modify', f'due:{due_date}'], hooks=True)
         
         if result.returncode != 0:
             error_msg = f"TaskWarrior modify due failed: {result.stderr}"
@@ -756,7 +765,7 @@ def remove_task_due_date(task_id):
     """Remove due date from a task"""
     try:
         # Remove due date by setting it to empty
-        result = run_task_command([str(task_id), 'modify', 'due:'])
+        result = run_task_command([str(task_id), 'modify', 'due:'], hooks=True)
         
         if result.returncode != 0:
             error_msg = f"TaskWarrior modify due failed: {result.stderr}"
@@ -794,7 +803,7 @@ def set_task_url(task_id):
         # that raw TaskWarrior error surface to the user.
         if not url_uda_defined(get_resolved_config()):
             return jsonify({'error': 'URL feature not available (url UDA not configured)', 'status': 'error'}), 400
-        result = run_task_command([str(task_id), 'modify', f'url:{url}'])
+        result = run_task_command([str(task_id), 'modify', f'url:{url}'], hooks=True)
         if result.returncode != 0:
             return jsonify({'error': f'TaskWarrior modify failed: {result.stderr}', 'status': 'error'}), 500
         return jsonify({'status': 'success'})
@@ -806,7 +815,7 @@ def remove_task_url(task_id):
     try:
         if not url_uda_defined(get_resolved_config()):
             return jsonify({'error': 'URL feature not available (url UDA not configured)', 'status': 'error'}), 400
-        result = run_task_command([str(task_id), 'modify', 'url:'])
+        result = run_task_command([str(task_id), 'modify', 'url:'], hooks=True)
         if result.returncode != 0:
             return jsonify({'error': f'TaskWarrior modify failed: {result.stderr}', 'status': 'error'}), 500
         return jsonify({'status': 'success'})
@@ -833,7 +842,7 @@ def add_task_tag(task_id):
         tag = request.json.get('tag', '').strip()
         if not tag:
             return jsonify({'error': 'Tag required', 'status': 'error'}), 400
-        result = run_task_command([str(task_id), 'modify', f'+{tag}'])
+        result = run_task_command([str(task_id), 'modify', f'+{tag}'], hooks=True)
         if result.returncode != 0:
             return jsonify({'error': f'TaskWarrior modify failed: {result.stderr}', 'status': 'error'}), 500
         return jsonify({'status': 'success'})
@@ -845,7 +854,7 @@ def remove_task_tag(task_id, tag):
     try:
         from urllib.parse import unquote
         decoded_tag = unquote(tag)
-        result = run_task_command([str(task_id), 'modify', f'-{decoded_tag}'])
+        result = run_task_command([str(task_id), 'modify', f'-{decoded_tag}'], hooks=True)
         if result.returncode != 0:
             return jsonify({'error': f'TaskWarrior modify failed: {result.stderr}', 'status': 'error'}), 500
         return jsonify({'status': 'success'})
@@ -891,7 +900,7 @@ def set_task_description(task_id):
         description = request.json.get('description', '').strip()
         if not description:
             return jsonify({'error': 'Description required', 'status': 'error'}), 400
-        result = run_task_command([str(task_id), 'modify', f'description:{description}'])
+        result = run_task_command([str(task_id), 'modify', f'description:{description}'], hooks=True)
         if result.returncode != 0:
             return jsonify({'error': f'TaskWarrior modify failed: {result.stderr}', 'status': 'error'}), 500
         return jsonify({'status': 'success'})
@@ -913,7 +922,7 @@ def set_task_priority(task_id):
             valid = ', '.join(priority_values) if priority_values else '(none configured)'
             return jsonify({'error': f'Priority must be one of: {valid}', 'status': 'error'}), 400
 
-        result = run_task_command([str(task_id), 'modify', f'priority:{priority}'])
+        result = run_task_command([str(task_id), 'modify', f'priority:{priority}'], hooks=True)
         if result.returncode != 0:
             return jsonify({'error': f'TaskWarrior modify failed: {result.stderr}', 'status': 'error'}), 500
         return jsonify({'status': 'success'})
@@ -923,7 +932,7 @@ def set_task_priority(task_id):
 @app.route('/task/<task_id>/priority', methods=['DELETE'])
 def remove_task_priority(task_id):
     try:
-        result = run_task_command([str(task_id), 'modify', 'priority:'])
+        result = run_task_command([str(task_id), 'modify', 'priority:'], hooks=True)
         if result.returncode != 0:
             return jsonify({'error': f'TaskWarrior modify failed: {result.stderr}', 'status': 'error'}), 500
         return jsonify({'status': 'success'})
