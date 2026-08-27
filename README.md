@@ -14,6 +14,7 @@ OneTask is a personal, single-user tool shared in case it's useful to you. See [
 - **Task Identifiers**: Clickable 8-character task IDs for easy terminal lookup
 - **Combined List + Stats View**: The List screen shows pending count, completed-today, and total time estimate as a header above the full task list
 - **Visual Indicators**: Red background for overdue tasks
+- **Auto-Scrolling Info Panel** (desktop): Opening the info panel (`i`) smooth-scrolls the page to bring as much of it into view as possible; closing it scrolls back to the top. No effect on mobile, where the panel is already a bottom sheet
 - **Task Completion**: Mark tasks complete/incomplete directly from the interface
 - **Report Support**: Works with any configured TaskWarrior report — built-ins like `next` and `ready` work out of the box; a personal report like `focus` needs to be defined first (see [Optional customizations](#optional-customizations))
 - **Inline Editing**: Edit a task's title (`T`) and priority directly in the task panel, with the same immediate-save priority control (click a value, no separate Save step) on desktop and mobile; priority can be cleared entirely, not just changed

@@ -514,10 +514,26 @@ function updateCountdown() {
     }
 
     // Task Details Functions
+    // ON-97, desktop only — on mobile the panel is a fixed-position bottom
+    // sheet (ON-64/B2) that already maximizes its own presentation; scrolling
+    // the page underneath it would do nothing useful and risks fighting the
+    // sheet's own slide-up transform.
+    function scrollToMaximizeDetailsPanel(detailsDiv) {
+        const rect = detailsDiv.getBoundingClientRect();
+        const alreadyFullyVisible = rect.top >= 0 && rect.bottom <= window.innerHeight;
+        // Only scroll if some of the panel is actually out of view — avoids
+        // a pointless (and per the acceptance criteria, unwanted) jump when
+        // it already fits.
+        if (!alreadyFullyVisible) {
+            detailsDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }
+    }
+
     function toggleTaskDetails() {
         const detailsDiv = document.getElementById('task-details');
         const toggleButton = document.getElementById('toggle-details');
         const scrim = document.getElementById('details-scrim');
+        const isDesktop = !window.matchMedia(MOBILE_BREAKPOINT).matches;
 
         taskDetailsVisible = !taskDetailsVisible;
 
@@ -526,10 +542,18 @@ function updateCountdown() {
             scrim.classList.add('details-scrim-open');
             toggleButton.textContent = 'Hide';
             updateTaskDetails();
+            // After updateTaskDetails() so the panel's real (populated)
+            // height is what gets measured/scrolled to, not its empty shell.
+            if (isDesktop) {
+                scrollToMaximizeDetailsPanel(detailsDiv);
+            }
         } else {
             detailsDiv.classList.remove('task-details-open');
             scrim.classList.remove('details-scrim-open');
             toggleButton.textContent = 'Show';
+            if (isDesktop) {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
         }
     }
 
