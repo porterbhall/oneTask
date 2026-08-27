@@ -131,14 +131,33 @@
                 </div>
             </div>
         </div>
+
+        <!-- Delete Section (ON-96) — deliberately last: destructive, kept
+             away from Complete/nav, no keyboard shortcut. -->
+        <div class="details-section">
+            <button id="delete-task-btn" class="delete-task-btn" onclick="openDeleteModal()">Delete Task</button>
+        </div>
     </div>
-    
+
     <!-- Tag Modal -->
     <div id="tag-modal" class="modal" style="display: none;">
         <div class="modal-content">
             <span class="close" id="tag-modal-close">&times;</span>
             <h3 id="modal-tag-title">Tasks with tag: </h3>
             <div id="modal-task-list"></div>
+        </div>
+    </div>
+
+    <!-- Delete Confirmation Modal (ON-96) -->
+    <div id="delete-modal" class="modal" style="display: none;">
+        <div class="modal-content">
+            <span class="close" id="delete-modal-close">&times;</span>
+            <h3>Delete this task?</h3>
+            <p id="delete-modal-task-title" class="delete-modal-task-title"></p>
+            <div class="delete-modal-buttons">
+                <button id="delete-modal-cancel" class="delete-modal-cancel-btn">Cancel</button>
+                <button id="delete-modal-confirm" class="delete-modal-confirm-btn">Delete</button>
+            </div>
         </div>
     </div>
 
@@ -1071,6 +1090,63 @@ function updateCountdown() {
         });
     }
 
+    // Delete task functions (ON-96)
+    function openDeleteModal() {
+        document.getElementById('delete-modal-task-title').textContent = task_names[currentTaskIndex];
+        document.getElementById('delete-modal').style.display = 'block';
+    }
+
+    function closeDeleteModal() {
+        document.getElementById('delete-modal').style.display = 'none';
+    }
+
+    function confirmDeleteTask() {
+        const taskId = task_id[currentTaskIndex];
+
+        fetch(`/task/${taskId}/delete`, { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                closeDeleteModal();
+                removeCurrentTaskFromSequence();
+            } else {
+                alert('Error deleting task: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error deleting task:', error);
+            alert('Error deleting task');
+        });
+    }
+
+    // Splices the just-deleted task out of every parallel per-task array and
+    // advances to the FOLLOWING task regardless of which direction the user
+    // arrived from (ON-96 acceptance criteria) — since everything after the
+    // deleted slot shifts down by one, the same index now already points at
+    // what was the next task; only the last slot needs a fallback.
+    function removeCurrentTaskFromSequence() {
+        const idx = currentTaskIndex;
+
+        [formatted_tasks, taskUrl, remainingSeconds, estimateIsDefault, short_ids,
+         task_annotations, task_due_dates, task_tags, task_names, task_priorities,
+         task_id, taskseries_id, truelist_id].forEach(arr => arr.splice(idx, 1));
+
+        numTasks -= 1;
+
+        // Shift down any completed-task index that was past the deleted slot.
+        completedTasks = completedTasks.filter(i => i !== idx).map(i => i > idx ? i - 1 : i);
+
+        if (numTasks === 0) {
+            // No sensible per-field empty state to fake client-side — reload
+            // and let the server's existing "No tasks to display" placeholder
+            // (show_list()) render, same as it does on a fresh page load.
+            window.location.reload();
+            return;
+        }
+
+        goToTaskIndex(Math.min(idx, numTasks - 1));
+    }
+
     function copyTaskIdFromModal(taskId, element) {
         navigator.clipboard.writeText(taskId).then(function() {
             console.log('Task ID copied to clipboard: ' + taskId);
@@ -1347,10 +1423,18 @@ function updateCountdown() {
         document.getElementById('tag-modal').style.display = 'none';
     }
 
+    document.getElementById('delete-modal-close').onclick = closeDeleteModal;
+    document.getElementById('delete-modal-cancel').onclick = closeDeleteModal;
+    document.getElementById('delete-modal-confirm').onclick = confirmDeleteTask;
+
     window.onclick = function(event) {
         const tagModal = document.getElementById('tag-modal');
         if (event.target === tagModal) {
             tagModal.style.display = 'none';
+        }
+        const deleteModal = document.getElementById('delete-modal');
+        if (event.target === deleteModal) {
+            closeDeleteModal();
         }
     }
 

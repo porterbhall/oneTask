@@ -1159,6 +1159,35 @@ class TestShowStats:
 
 
 # ---------------------------------------------------------------------------
+# Route tests: POST /task/<id>/delete
+# ---------------------------------------------------------------------------
+
+class TestDeleteTask:
+    @patch('app.subprocess.run')
+    def test_happy_path(self, mock_run, client):
+        mock_run.return_value = mock_result(stdout='Deleted 1 task.')
+        response = client.post('/task/abc12345/delete')
+        assert response.status_code == 200
+        assert response.get_json()['status'] == 'success'
+        # Soft delete (TaskWarrior `delete`), not `purge` — and hooks stay
+        # on since this is a mutating call (ON-93).
+        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'delete')
+
+    @patch('app.subprocess.run')
+    def test_subprocess_failure_returns_500(self, mock_run, client):
+        mock_run.return_value = mock_result(returncode=1, stderr='Task does not exist')
+        response = client.post('/task/bad-id/delete')
+        assert response.status_code == 500
+        assert response.get_json()['status'] == 'error'
+
+    @patch('app.subprocess.run')
+    def test_timeout_returns_408(self, mock_run, client):
+        mock_run.side_effect = subprocess.TimeoutExpired(['task'], 30)
+        response = client.post('/task/abc12345/delete')
+        assert response.status_code == 408
+
+
+# ---------------------------------------------------------------------------
 # Route tests: GET /tasks/by-tag/<tag>
 # ---------------------------------------------------------------------------
 

@@ -861,6 +861,23 @@ def remove_task_tag(task_id, tag):
     except Exception as e:
         return jsonify({'error': str(e), 'status': 'error'}), 500
 
+@app.route('/task/<task_id>/delete', methods=['POST'])
+def delete_task(task_id):
+    """Soft-delete a task (ON-96). Uses TaskWarrior's `delete`, which flips
+    status to 'deleted' rather than purging — recoverable via `task undo`
+    from the CLI, or the ON-98 list section's Restore action. The modal on
+    the frontend is the only confirmation gate (oneTask already runs with
+    rc.confirmation=off, so TaskWarrior itself won't prompt)."""
+    try:
+        result = run_task_command([str(task_id), 'delete'], hooks=True)
+        if result.returncode != 0:
+            return jsonify({'error': f'TaskWarrior delete failed: {result.stderr}', 'status': 'error'}), 500
+        return jsonify({'status': 'success'})
+    except TimeoutError as e:
+        return jsonify({'error': f'TaskWarrior timeout: {str(e)}', 'status': 'timeout'}), 408
+    except Exception as e:
+        return jsonify({'error': str(e), 'status': 'error'}), 500
+
 @app.route('/tasks/by-tag/<tag>', methods=['GET'])
 def get_tasks_by_tag(tag):
     """Get all tasks with a specific tag"""

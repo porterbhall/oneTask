@@ -506,6 +506,64 @@ body {
     background-color: #b71c1c;
 }
 
+/* Delete Task control (ON-96) — destructive-styled (reuses the existing
+   #d32f2f red, same one used for overdue) but deliberately low-prominence:
+   outlined rather than a solid block, sitting alone at the bottom of the
+   details sheet away from Complete/nav so it doesn't invite mis-taps. */
+.delete-task-btn {
+    display: block;
+    width: 100%;
+    background-color: transparent;
+    color: #d32f2f;
+    border: 1px solid #d32f2f;
+    border-radius: 3px;
+    padding: 8px;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.delete-task-btn:hover {
+    background-color: rgba(211, 47, 47, 0.1);
+}
+
+.delete-modal-task-title {
+    color: #e6d7d7;
+    font-style: italic;
+}
+
+.delete-modal-buttons {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 15px;
+}
+
+.delete-modal-cancel-btn {
+    background-color: #4d4d4d;
+    color: #c2c2c2;
+    border: none;
+    border-radius: 3px;
+    padding: 8px 16px;
+    cursor: pointer;
+}
+
+.delete-modal-cancel-btn:hover {
+    background-color: #5d5d5d;
+}
+
+.delete-modal-confirm-btn {
+    background-color: #d32f2f;
+    color: white;
+    border: none;
+    border-radius: 3px;
+    padding: 8px 16px;
+    cursor: pointer;
+}
+
+.delete-modal-confirm-btn:hover {
+    background-color: #b71c1c;
+}
+
 .annotation-form {
     margin-bottom: 10px;
 }
