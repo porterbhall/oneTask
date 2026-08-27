@@ -1,5 +1,6 @@
 import json
 import os
+import re
 import subprocess
 from datetime import date, datetime, time, timedelta, timezone
 from flask import Flask, render_template, request, jsonify, Response, redirect, url_for
@@ -979,16 +980,59 @@ def get_task_tags(task_id):
     except Exception as e:
         return jsonify({'error': str(e), 'status': 'error'}), 500
 
+# Deliberately narrower than "whatever TaskWarrior will accept as a tag" —
+# see parse_tag_input's docstring for why this can't just defer to TaskWarrior.
+_VALID_TAG_PATTERN = re.compile(r'^[A-Za-z0-9_-]+$')
+
+def parse_tag_input(raw_text):
+    """Split a tag-add entry into individual clean tag names (ON-95).
+
+    Comma, space, and '+' are all treated as delimiters — TaskWarrior tag
+    names can't contain any of them (space categorically; '+'/',' are
+    reserved in TaskWarrior's own modifier syntax), so this can't collide
+    with a legitimate tag name. Treating a leading '+' as just another
+    delimiter also handles the "'+work' -> 'work'" add-prefix requirement
+    for free: a leading '+' is delimiter-adjacent to the token that
+    follows it, not part of it, so it disappears the same way a leading
+    comma or space would. Repeated/trailing delimiters collapse to no
+    empty tokens.
+
+    Tokens are then filtered against _VALID_TAG_PATTERN before being
+    returned — a deliberate departure from the original "defer
+    character-validity to TaskWarrior" plan. Confirmed empirically: a
+    malformed +tag token TaskWarrior doesn't recognize (e.g. one
+    containing ':') doesn't fail cleanly — `modify` falls back to treating
+    the unrecognized argument as new description text and SILENTLY
+    OVERWRITES the task's existing description. Pre-filtering here means
+    nothing that could trigger that ever reaches the command line; an
+    invalid token is just dropped (the "skip" option the ticket allows),
+    not "deferred" to TaskWarrior at all.
+    """
+    if not raw_text:
+        return []
+    tokens = re.split(r'[,+\s]+', raw_text.strip())
+    return [t for t in tokens if t and _VALID_TAG_PATTERN.match(t)]
+
 @app.route('/task/<task_id>/tags', methods=['POST'])
 def add_task_tag(task_id):
     try:
-        tag = request.json.get('tag', '').strip()
-        if not tag:
+        raw_input = request.json.get('tag', '').strip()
+        if not raw_input:
             return jsonify({'error': 'Tag required', 'status': 'error'}), 400
-        result = run_task_command([str(task_id), 'modify', f'+{tag}'], hooks=True)
+
+        tags = parse_tag_input(raw_input)
+        if not tags:
+            return jsonify({'error': 'No valid tags found', 'status': 'error'}), 400
+
+        # One batched write regardless of how many tags — confirmed
+        # empirically that re-adding an already-present tag alongside new
+        # ones is a silent no-op (exit 0, no duplication), so this is safe
+        # even when some of the entered tags already exist on the task.
+        modify_args = [f'+{tag}' for tag in tags]
+        result = run_task_command([str(task_id), 'modify'] + modify_args, hooks=True)
         if result.returncode != 0:
             return jsonify({'error': f'TaskWarrior modify failed: {result.stderr}', 'status': 'error'}), 500
-        return jsonify({'status': 'success'})
+        return jsonify({'status': 'success', 'tags_added': tags})
     except Exception as e:
         return jsonify({'error': str(e), 'status': 'error'}), 500
 

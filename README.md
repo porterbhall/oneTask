@@ -18,7 +18,7 @@ OneTask is a personal, single-user tool shared in case it's useful to you. See [
 - **Report Support**: Works with any configured TaskWarrior report — built-ins like `next` and `ready` work out of the box; a personal report like `focus` needs to be defined first (see [Optional customizations](#optional-customizations))
 - **Inline Editing**: Edit a task's title (`T`) and priority directly in the task panel, with the same immediate-save priority control (click a value, no separate Save step) on desktop and mobile; priority can be cleared entirely, not just changed
 - **Notes Management**: Add, view, and delete task annotations with configurable sort order (newest/oldest first); new-note form repositions to match sort order
-- **Tag Management**: Add and remove tags directly in the task panel without using the TUI
+- **Tag Management**: Add and remove tags directly in the task panel without using the TUI — the add field accepts several at once (`work, home +errands`), comma/space/`+` delimited
 - **URL Management**: Add or edit a task's URL link directly in the task panel without using the TUI
 - **Keyboard Shortcuts**: `a` to open the info panel and focus the new note field; `T` to edit the title; `S` to jump between the timer and the List view; `z` to postpone the due date one day past today or its current due date; Cmd+Enter to save; standard nav shortcuts (p/n/d/space/i/l)
 - **Mobile / Touch Support**: The timer, details panel, and List view adapt to phone-sized screens (portrait and landscape) — thumb-sized controls, a swipe-to-dismiss Details bottom sheet, tap-to-expand notes, and a touch-friendly priority picker. Fully additive: desktop behavior and layout are unchanged
@@ -323,7 +323,12 @@ Removes the URL from a task.
 Returns the tags for a task.
 
 ### POST /task/\<id\>/tags
-Adds a tag to a task. Body: `{"tag": "tagname"}`.
+Adds one or more tags to a task in a single call. Body: `{"tag": "tagname"}`, or multiple at once, delimited by comma, space, and/or `+`: `{"tag": "work, home +errands"}`. A leading `+` on a token is stripped (`+work` → `work`); already-present tags are a no-op, not an error; tokens with characters outside `[A-Za-z0-9_-]` are silently dropped rather than sent to TaskWarrior (an unrecognized token can make TaskWarrior's `modify` overwrite the task's description instead of failing cleanly, so invalid tags are filtered out before that's possible).
+
+**Response:**
+```json
+{"status": "success", "tags_added": ["work", "home", "errands"]}
+```
 
 ### DELETE /task/\<id\>/tags/\<tag\>
 Removes a specific tag from a task.

@@ -15,6 +15,7 @@ from app import (
     format_estimate_display,
     format_task_for_display,
     get_resolved_config,
+    parse_tag_input,
     sorting_key,
 )
 
@@ -116,6 +117,59 @@ class TestConvertEstimateToSeconds:
 
     def test_days_short_form(self):
         assert convert_taskwarrior_estimate_to_seconds('7d') == 604800
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: parse_tag_input (ON-95)
+# ---------------------------------------------------------------------------
+
+class TestParseTagInput:
+    def test_comma_delimited(self):
+        assert parse_tag_input('work,home,errands') == ['work', 'home', 'errands']
+
+    def test_space_delimited(self):
+        assert parse_tag_input('work home errands') == ['work', 'home', 'errands']
+
+    def test_plus_delimited(self):
+        assert parse_tag_input('work+home+errands') == ['work', 'home', 'errands']
+
+    def test_mixed_and_repeated_delimiters(self):
+        assert parse_tag_input('work, home +errands') == ['work', 'home', 'errands']
+        assert parse_tag_input('work,,  home   +++errands') == ['work', 'home', 'errands']
+
+    def test_leading_plus_stripped(self):
+        assert parse_tag_input('+work') == ['work']
+
+    def test_single_tag_still_works(self):
+        # Backward-compat: the pre-ON-95 single-tag behavior is just the
+        # one-element case of the same parser.
+        assert parse_tag_input('urgent') == ['urgent']
+
+    def test_whitespace_trimmed(self):
+        assert parse_tag_input('   urgent   ') == ['urgent']
+
+    def test_empty_string_returns_empty_list(self):
+        assert parse_tag_input('') == []
+
+    def test_only_delimiters_returns_empty_list(self):
+        assert parse_tag_input(', + ,') == []
+
+    def test_none_returns_empty_list(self):
+        assert parse_tag_input(None) == []
+
+    def test_underscore_and_hyphen_allowed(self):
+        assert parse_tag_input('work_stuff, follow-up') == ['work_stuff', 'follow-up']
+
+    def test_colon_rejected_not_passed_through(self):
+        # Confirmed empirically against a live TaskWarrior install: a
+        # malformed +tag token containing ':' doesn't fail cleanly — it
+        # makes `modify` fall back to treating the argument as new
+        # description text and silently overwrite the task's real
+        # description. This must never reach the command line.
+        assert parse_tag_input('goodtag, bad:tag') == ['goodtag']
+
+    def test_all_invalid_returns_empty_list(self):
+        assert parse_tag_input('bad:tag, also:bad') == []
 
 
 # ---------------------------------------------------------------------------
@@ -1444,6 +1498,79 @@ class TestRemoveTaskUrl:
             Exception('unexpected error'),
         ]
         response = client.delete('/task/abc12345/url')
+        assert response.status_code == 500
+
+
+# ---------------------------------------------------------------------------
+# Route tests: GET/POST /task/<id>/tags (ON-95 for the POST behavior)
+# ---------------------------------------------------------------------------
+
+class TestGetTaskTags:
+    @patch('app.subprocess.run')
+    def test_happy_path(self, mock_run, client):
+        task = {**SAMPLE_TASK, 'tags': ['work', 'urgent']}
+        mock_run.return_value = mock_result(stdout=json.dumps([task]))
+        response = client.get('/task/abc12345/tags')
+        assert response.status_code == 200
+        assert response.get_json()['tags'] == ['work', 'urgent']
+
+    @patch('app.subprocess.run')
+    def test_task_not_found_returns_404(self, mock_run, client):
+        mock_run.return_value = mock_result(returncode=1, stderr='not found')
+        response = client.get('/task/bad-id/tags')
+        assert response.status_code == 404
+
+
+class TestAddTaskTag:
+    @patch('app.subprocess.run')
+    def test_single_tag_happy_path(self, mock_run, client):
+        mock_run.return_value = mock_result(stdout='Modified 1 task.')
+        response = client.post('/task/abc12345/tags', json={'tag': 'urgent'})
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['status'] == 'success'
+        assert data['tags_added'] == ['urgent']
+        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'modify', '+urgent')
+
+    @patch('app.subprocess.run')
+    def test_multiple_tags_one_batched_write(self, mock_run, client):
+        mock_run.return_value = mock_result(stdout='Modified 1 task.')
+        response = client.post('/task/abc12345/tags', json={'tag': 'work, home +errands'})
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['tags_added'] == ['work', 'home', 'errands']
+        # One subprocess call for all three tags, not three separate calls.
+        assert mock_run.call_count == 1
+        assert mock_run.call_args[0][0] == write_task_args(
+            'abc12345', 'modify', '+work', '+home', '+errands'
+        )
+
+    @patch('app.subprocess.run')
+    def test_invalid_tag_among_valid_ones_is_dropped_silently(self, mock_run, client):
+        mock_run.return_value = mock_result(stdout='Modified 1 task.')
+        response = client.post('/task/abc12345/tags', json={'tag': 'goodtag, bad:tag'})
+        assert response.status_code == 200
+        data = response.get_json()
+        assert data['tags_added'] == ['goodtag']
+        # The malformed token must never reach the command line.
+        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'modify', '+goodtag')
+
+    def test_missing_tag_returns_400(self, client):
+        response = client.post('/task/abc12345/tags', json={})
+        assert response.status_code == 400
+
+    def test_blank_tag_returns_400(self, client):
+        response = client.post('/task/abc12345/tags', json={'tag': '   '})
+        assert response.status_code == 400
+
+    def test_all_invalid_tags_returns_400_without_firing_modify(self, client):
+        response = client.post('/task/abc12345/tags', json={'tag': 'bad:tag'})
+        assert response.status_code == 400
+
+    @patch('app.subprocess.run')
+    def test_subprocess_failure_returns_500(self, mock_run, client):
+        mock_run.return_value = mock_result(returncode=1, stderr='error')
+        response = client.post('/task/abc12345/tags', json={'tag': 'urgent'})
         assert response.status_code == 500
 
 
