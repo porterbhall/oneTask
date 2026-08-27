@@ -1,7 +1,7 @@
 import json
 import os
 import subprocess
-from datetime import datetime
+from datetime import date, datetime, time, timedelta, timezone
 from flask import Flask, render_template, request, jsonify, Response, redirect, url_for
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
@@ -320,6 +320,47 @@ def format_due_date_display(due_date):
         return datetime.strptime(due_date, '%Y%m%dT%H%M%SZ').strftime('%b %d, %Y')
     except ValueError:
         return due_date
+
+def compute_postponed_due(current_due, today=None):
+    """Compute the new `due:` value for a Postpone/snooze press (ON-94):
+    one day past the later of the current due date or today, in the
+    user's LOCAL date (oneTask runs locally, so the server's local date is
+    the correct "today" — no client timezone to reconcile).
+
+    Returns a string with NO trailing 'Z', so TaskWarrior parses it as
+    local time, matching how oneTask's own due-date UI already sets dates:
+    - a bare 'YYYY-MM-DD' when the current due has no meaningful
+      time-of-day (or there's no due at all) — stays date-only.
+    - 'YYYY-MM-DDTHH:MM:SS' when the current due carries a real
+      time-of-day, preserving it onto the new date.
+
+    TaskWarrior itself doesn't record "date-only" vs "midnight exactly" —
+    every due on disk is a full UTC timestamp. This treats a due whose
+    LOCAL time-of-day is exactly midnight as date-only, since that's how
+    oneTask's own <input type="date"> due-setting UI always creates one
+    (a bare date, applied at local midnight); any other local time is
+    treated as a deliberate time-of-day and preserved.
+    """
+    if today is None:
+        today = date.today()
+
+    local_due_date = None
+    local_due_time = None
+    if current_due:
+        try:
+            utc_dt = datetime.strptime(current_due, '%Y%m%dT%H%M%SZ').replace(tzinfo=timezone.utc)
+            local_dt = utc_dt.astimezone()  # server's local timezone
+            local_due_date = local_dt.date()
+            local_due_time = local_dt.time()
+        except ValueError:
+            pass  # unparseable — treat the same as "no due"
+
+    later_date = max(local_due_date, today) if local_due_date else today
+    target_date = later_date + timedelta(days=1)
+
+    if local_due_time and local_due_time != time(0, 0, 0):
+        return f"{target_date.isoformat()}T{local_due_time.strftime('%H:%M:%S')}"
+    return target_date.isoformat()
 
 def format_end_date_display(end_date):
     """Format a TaskWarrior `end` timestamp for display (ON-98) — same
@@ -847,6 +888,36 @@ def remove_task_due_date(task_id):
         
     except Exception as e:
         error_msg = f"Error removing due date: {str(e)}"
+        print(f"DEBUG: {error_msg}")
+        return jsonify({'error': error_msg, 'status': 'error'}), 500
+
+@app.route('/task/<task_id>/postpone', methods=['POST'])
+def postpone_task_due_date(task_id):
+    """Snooze a task's due date one day past the later of its current due
+    or today (ON-94). Reads the task's current due fresh on every call (not
+    client-supplied) so repeated presses each compute from the latest
+    stored value, landing on the correct cumulative date."""
+    try:
+        export_result = run_task_command([str(task_id), 'export'])
+        if export_result.returncode != 0:
+            return jsonify({'error': 'Task not found', 'status': 'error'}), 404
+        task_data = json.loads(export_result.stdout)
+        if not task_data:
+            return jsonify({'error': 'Task not found', 'status': 'error'}), 404
+
+        new_due = compute_postponed_due(task_data[0].get('due'))
+
+        result = run_task_command([str(task_id), 'modify', f'due:{new_due}'], hooks=True)
+        if result.returncode != 0:
+            error_msg = f"TaskWarrior modify due failed: {result.stderr}"
+            return jsonify({'error': error_msg, 'status': 'error'}), 500
+
+        return jsonify({'status': 'success', 'due_date': new_due})
+
+    except TimeoutError as e:
+        return jsonify({'error': f'TaskWarrior timeout: {str(e)}', 'status': 'timeout'}), 408
+    except Exception as e:
+        error_msg = f"Error postponing due date: {str(e)}"
         print(f"DEBUG: {error_msg}")
         return jsonify({'error': error_msg, 'status': 'error'}), 500
 

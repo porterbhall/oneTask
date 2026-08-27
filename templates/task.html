@@ -86,6 +86,7 @@
                 <input type="date" id="new-due-date">
                 <button id="save-due-date">Save Due Date</button>
                 <button id="due-today">Due Today</button>
+                <button id="postpone-due-btn" title="Snooze one day past today or the current due date (z)">Postpone</button>
                 <button id="remove-due-date">Remove</button>
             </div>
         </div>
@@ -484,6 +485,9 @@ function updateCountdown() {
                 break;
             case 's':
                 window.location.href = document.querySelector('.list-link').href;
+                break;
+            case 'z':
+                postponeTask();
                 break;
         }
     });
@@ -959,6 +963,29 @@ function updateCountdown() {
         });
     }
 
+    // Postpone/snooze (ON-94) — button and the "z" key both call this. The
+    // target date is computed server-side (it needs the task's current due
+    // plus the server's local "today"), so this is just a bare POST; the
+    // display refresh reuses the same path saveDueDate/setDueToday already
+    // use, so it updates immediately without a page reload.
+    function postponeTask() {
+        const taskId = task_id[currentTaskIndex];
+
+        fetch(`/task/${taskId}/postpone`, { method: 'POST' })
+        .then(response => response.json())
+        .then(data => {
+            if (data.status === 'success') {
+                refreshCurrentTaskData();
+            } else {
+                alert('Error postponing task: ' + data.error);
+            }
+        })
+        .catch(error => {
+            console.error('Error postponing task:', error);
+            alert('Error postponing task');
+        });
+    }
+
     function updateUrlDisplay() {
         const urlDisplay = document.getElementById('url-display');
         const url = taskUrl[currentTaskIndex];
@@ -1398,6 +1425,7 @@ function updateCountdown() {
     document.getElementById('cancel-url').onclick = hideUrlForm;
     document.getElementById('save-due-date').onclick = saveDueDate;
     document.getElementById('due-today').onclick = setDueToday;
+    document.getElementById('postpone-due-btn').onclick = postponeTask;
     document.getElementById('remove-due-date').onclick = removeDueDate;
     document.getElementById('add-tag-btn').onclick = function() {
         document.getElementById('tag-add-form').style.display = 'block';

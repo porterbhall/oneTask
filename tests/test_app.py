@@ -1,5 +1,6 @@
 import json
 import subprocess
+from datetime import date, datetime, timezone
 from unittest.mock import patch, MagicMock
 
 import pytest
@@ -7,6 +8,7 @@ import pytest
 from app import (
     RC_OVERRIDES,
     app,
+    compute_postponed_due,
     convert_taskwarrior_estimate_to_seconds,
     format_due_date_display,
     format_end_date_display,
@@ -387,6 +389,72 @@ class TestFormatDueDateDisplay:
 
     def test_unparseable_date_returned_as_is(self):
         assert format_due_date_display('not-a-date') == 'not-a-date'
+
+
+def _utc_due_for_local(local_naive_dt):
+    """Build a TaskWarrior-style UTC `due` string for a given naive LOCAL
+    datetime, resolved against the test machine's own system timezone —
+    the same mechanism compute_postponed_due() uses internally.
+
+    A naive datetime's own .astimezone() (no args) treats it as already
+    being system-local time and attaches the correct tzinfo for THAT
+    specific date — correctly DST-aware per date, unlike grabbing
+    datetime.now().astimezone().tzinfo once and reusing it as a fixed
+    offset (which breaks whenever "now" and the fixture date straddle a
+    DST boundary, e.g. building a January fixture in August)."""
+    aware_local = local_naive_dt.astimezone()
+    return aware_local.astimezone(timezone.utc).strftime('%Y%m%dT%H%M%SZ')
+
+
+class TestComputePostponedDue:
+    TODAY = date(2026, 8, 27)
+
+    def test_no_due_snoozes_to_tomorrow_date_only(self):
+        assert compute_postponed_due(None, self.TODAY) == '2026-08-28'
+
+    def test_due_today_at_local_midnight_snoozes_to_tomorrow_date_only(self):
+        due = _utc_due_for_local(datetime(2026, 8, 27, 0, 0, 0))
+        assert compute_postponed_due(due, self.TODAY) == '2026-08-28'
+
+    def test_overdue_snoozes_to_tomorrow_date_only(self):
+        due = _utc_due_for_local(datetime(2026, 1, 1, 0, 0, 0))
+        assert compute_postponed_due(due, self.TODAY) == '2026-08-28'
+
+    def test_due_in_future_advances_by_exactly_one_day(self):
+        due = _utc_due_for_local(datetime(2026, 9, 1, 0, 0, 0))
+        assert compute_postponed_due(due, self.TODAY) == '2026-09-02'
+
+    def test_time_of_day_is_preserved_when_present(self):
+        due = _utc_due_for_local(datetime(2026, 8, 27, 14, 30, 0))  # 2:30pm local, overdue-ish (today)
+        assert compute_postponed_due(due, self.TODAY) == '2026-08-28T14:30:00'
+
+    def test_date_only_due_stays_date_only(self):
+        due = _utc_due_for_local(datetime(2026, 9, 1, 0, 0, 0))
+        result = compute_postponed_due(due, self.TODAY)
+        assert 'T' not in result
+
+    def test_unparseable_due_treated_as_no_due(self):
+        assert compute_postponed_due('garbage', self.TODAY) == '2026-08-28'
+
+    def test_never_returns_today_or_past(self):
+        for due in (None, _utc_due_for_local(datetime(2020, 1, 1)), _utc_due_for_local(datetime(2099, 12, 31))):
+            result = compute_postponed_due(due, self.TODAY)
+            assert result.split('T')[0] > self.TODAY.isoformat()
+
+    def test_repeated_presses_advance_one_day_each_time(self):
+        # Each call re-reads a fresh "current due" (as the route does on
+        # every request) — simulates what TaskWarrior reports back after
+        # each write actually landing.
+        first = compute_postponed_due(None, self.TODAY)
+        assert first == '2026-08-28'
+
+        first_due = _utc_due_for_local(datetime.strptime(first, '%Y-%m-%d'))
+        second = compute_postponed_due(first_due, self.TODAY)
+        assert second == '2026-08-29'
+
+        second_due = _utc_due_for_local(datetime.strptime(second, '%Y-%m-%d'))
+        third = compute_postponed_due(second_due, self.TODAY)
+        assert third == '2026-08-30'
 
 
 class TestFormatEndDateDisplay:
@@ -1177,6 +1245,84 @@ class TestRemoveDueDate:
         mock_run.return_value = mock_result(returncode=1, stderr='error')
         response = client.delete('/task/abc12345/due')
         assert response.status_code == 500
+
+
+# ---------------------------------------------------------------------------
+# Route tests: POST /task/<id>/postpone
+# ---------------------------------------------------------------------------
+
+class TestPostponeTask:
+    @patch('app.subprocess.run')
+    def test_happy_path_no_due(self, mock_run, client):
+        task = {**SAMPLE_TASK, 'due': None}
+        mock_run.side_effect = [
+            mock_result(stdout=json.dumps([task])),   # export (read current due)
+            mock_result(stdout='Modified 1 task.'),   # modify due:
+        ]
+        response = client.post('/task/abc12345/postpone')
+        assert response.status_code == 200
+        assert response.get_json()['status'] == 'success'
+        # No due -> tomorrow, date-only (exact date depends on today; just
+        # confirm the write is a bare YYYY-MM-DD, no time component).
+        write_call = mock_run.call_args_list[1][0][0]
+        due_arg = next(a for a in write_call if a.startswith('due:'))
+        assert 'T' not in due_arg
+
+    @patch('app.subprocess.run')
+    def test_reads_current_due_before_writing(self, mock_run, client):
+        task = {**SAMPLE_TASK, 'due': '20260101T000000Z'}
+        mock_run.side_effect = [
+            mock_result(stdout=json.dumps([task])),
+            mock_result(stdout='Modified 1 task.'),
+        ]
+        client.post('/task/abc12345/postpone')
+        # First call reads the task (export, hook-free read path); second
+        # writes (modify due:..., hooks enabled per ON-93).
+        assert mock_run.call_args_list[0][0][0] == task_args('abc12345', 'export')
+        write_call = mock_run.call_args_list[1][0][0]
+        assert write_call[:len(write_task_args('abc12345', 'modify'))] == write_task_args('abc12345', 'modify')
+
+    @patch('app.subprocess.run')
+    def test_task_not_found_returns_404(self, mock_run, client):
+        mock_run.return_value = mock_result(stdout='[]')
+        response = client.post('/task/bad-id/postpone')
+        assert response.status_code == 404
+
+    @patch('app.subprocess.run')
+    def test_export_failure_returns_404(self, mock_run, client):
+        mock_run.return_value = mock_result(returncode=1, stderr='Task does not exist')
+        response = client.post('/task/bad-id/postpone')
+        assert response.status_code == 404
+
+    @patch('app.subprocess.run')
+    def test_modify_failure_returns_500(self, mock_run, client):
+        mock_run.side_effect = [
+            mock_result(stdout=json.dumps([SAMPLE_TASK])),
+            mock_result(returncode=1, stderr='error'),
+        ]
+        response = client.post('/task/abc12345/postpone')
+        assert response.status_code == 500
+
+    @patch('app.subprocess.run')
+    def test_timeout_returns_408(self, mock_run, client):
+        mock_run.side_effect = subprocess.TimeoutExpired(['task'], 30)
+        response = client.post('/task/abc12345/postpone')
+        assert response.status_code == 408
+
+    @patch('app.subprocess.run')
+    def test_fires_hooks_on_write(self, mock_run, client):
+        # Read (export) stays hook-free; the write (modify) must have hooks
+        # enabled per ON-93 — write_task_args omits rc.hooks=off, task_args includes it.
+        task = {**SAMPLE_TASK, 'due': None}
+        mock_run.side_effect = [
+            mock_result(stdout=json.dumps([task])),
+            mock_result(stdout='Modified 1 task.'),
+        ]
+        client.post('/task/abc12345/postpone')
+        read_call = mock_run.call_args_list[0][0][0]
+        write_call = mock_run.call_args_list[1][0][0]
+        assert 'rc.hooks=off' in read_call
+        assert 'rc.hooks=off' not in write_call
 
 
 # ---------------------------------------------------------------------------

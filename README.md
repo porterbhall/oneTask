@@ -20,7 +20,7 @@ OneTask is a personal, single-user tool shared in case it's useful to you. See [
 - **Notes Management**: Add, view, and delete task annotations with configurable sort order (newest/oldest first); new-note form repositions to match sort order
 - **Tag Management**: Add and remove tags directly in the task panel without using the TUI
 - **URL Management**: Add or edit a task's URL link directly in the task panel without using the TUI
-- **Keyboard Shortcuts**: `a` to open the info panel and focus the new note field; `T` to edit the title; `S` to jump between the timer and the List view; Cmd+Enter to save; standard nav shortcuts (p/n/d/space/i/l)
+- **Keyboard Shortcuts**: `a` to open the info panel and focus the new note field; `T` to edit the title; `S` to jump between the timer and the List view; `z` to postpone the due date one day past today or its current due date; Cmd+Enter to save; standard nav shortcuts (p/n/d/space/i/l)
 - **Mobile / Touch Support**: The timer, details panel, and List view adapt to phone-sized screens (portrait and landscape) — thumb-sized controls, a swipe-to-dismiss Details bottom sheet, tap-to-expand notes, and a touch-friendly priority picker. Fully additive: desktop behavior and layout are unchanged
 - **Click-to-copy**: Task IDs, note text, and the List view's stats summary all copy to the clipboard on click/tap
 - **Localhost by default**: Binds to `127.0.0.1` so a fresh install is reachable only from the machine it runs on. LAN access is opt-in and requires a password (see [Configuration](#configuration))
@@ -111,6 +111,7 @@ See [Optional customizations](#optional-customizations) below for further tuning
    - Click "List" (upper left) to browse the full task list along with pending/completed-today/estimate-remaining stats; "Return to oneTask" (also upper left, on the List view) or the `S` key jumps back
    - Click "Complete Task" to mark tasks as done
    - Click "Uncomplete Task" to reopen completed tasks
+   - In the due-date section, click "Postpone" (or press `z`) to snooze a task's due date one day past today or its current due date, whichever is later — never leaves it in the past
    - On a phone, tap "Details" (below the timer controls) to open the same task panel as a bottom sheet — swipe down or tap outside it to dismiss
 
 ## Configuration
@@ -294,6 +295,14 @@ Sets the due date for a task. Body: `{"due_date": "YYYY-MM-DD"}`.
 
 ### DELETE /task/\<id\>/due
 Removes the due date from a task.
+
+### POST /task/\<id\>/postpone
+Snoozes a task's due date one day past the later of its current due date or today (the server's local date). No due date at all is treated the same as an overdue one — both land on tomorrow. Time-of-day is preserved if the current due has one; a date-only due stays date-only. No request body.
+
+**Response:**
+```json
+{"status": "success", "due_date": "2026-08-28"}
+```
 
 ### POST /task/\<id\>/priority
 Sets a task's priority. Body: `{"priority": "H"}` (or whatever value from your configured `uda.priority.values` scheme — native H/M/L by default). Rejected with a 400 if the value isn't one of the resolved scheme's actual values.
