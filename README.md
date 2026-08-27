@@ -324,7 +324,7 @@ Removes the URL from a task.
 Returns the tags for a task.
 
 ### POST /task/\<id\>/tags
-Adds one or more tags to a task in a single call. Body: `{"tag": "tagname"}`, or multiple at once, delimited by comma, space, and/or `+`: `{"tag": "work, home +errands"}`. A leading `+` on a token is stripped (`+work` → `work`); already-present tags are a no-op, not an error; tokens with characters outside `[A-Za-z0-9_-]` are silently dropped rather than sent to TaskWarrior (an unrecognized token can make TaskWarrior's `modify` overwrite the task's description instead of failing cleanly, so invalid tags are filtered out before that's possible).
+Adds one or more tags to a task in a single call. Body: `{"tag": "tagname"}`, or multiple at once, delimited by comma, space, and/or `+`: `{"tag": "work, home +errands"}`. A leading `+` on a token is stripped (`+work` → `work`); already-present tags are a no-op, not an error; tokens with characters outside `[A-Za-z0-9_]` (letters, digits, underscore — **no hyphen**, confirmed unsupported by TaskWarrior's own `+tag` syntax) are silently dropped rather than sent to TaskWarrior (an unrecognized token can make TaskWarrior's `modify` overwrite the task's description instead of failing cleanly, so invalid tags are filtered out before that's possible).
 
 **Response:**
 ```json

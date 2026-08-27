@@ -157,8 +157,8 @@ class TestParseTagInput:
     def test_none_returns_empty_list(self):
         assert parse_tag_input(None) == []
 
-    def test_underscore_and_hyphen_allowed(self):
-        assert parse_tag_input('work_stuff, follow-up') == ['work_stuff', 'follow-up']
+    def test_underscore_allowed(self):
+        assert parse_tag_input('work_stuff') == ['work_stuff']
 
     def test_colon_rejected_not_passed_through(self):
         # Confirmed empirically against a live TaskWarrior install: a
@@ -168,8 +168,17 @@ class TestParseTagInput:
         # description. This must never reach the command line.
         assert parse_tag_input('goodtag, bad:tag') == ['goodtag']
 
+    def test_hyphen_rejected_not_passed_through(self):
+        # Regression test — Porter caught this in manual testing after
+        # ON-95 shipped. Hyphen was originally (wrongly) in the allowed
+        # set; confirmed empirically that '+test-tag' hits the exact same
+        # description-overwrite failure as ':' does. TaskWarrior only
+        # accepts alphanumeric + underscore in a +tag modifier.
+        assert parse_tag_input('goodtag, test-tag') == ['goodtag']
+
     def test_all_invalid_returns_empty_list(self):
         assert parse_tag_input('bad:tag, also:bad') == []
+        assert parse_tag_input('test-tag') == []
 
 
 # ---------------------------------------------------------------------------

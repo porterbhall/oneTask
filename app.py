@@ -982,7 +982,12 @@ def get_task_tags(task_id):
 
 # Deliberately narrower than "whatever TaskWarrior will accept as a tag" —
 # see parse_tag_input's docstring for why this can't just defer to TaskWarrior.
-_VALID_TAG_PATTERN = re.compile(r'^[A-Za-z0-9_-]+$')
+# NOTE: hyphen was in this set originally and is WRONG — confirmed
+# empirically that TaskWarrior doesn't accept it in a +tag modifier either;
+# '+test-tag' hits the exact same description-overwrite failure as ':'
+# (caught by Porter's manual testing, ON-95 post-ship). Only alphanumeric
+# and underscore are confirmed safe.
+_VALID_TAG_PATTERN = re.compile(r'^[A-Za-z0-9_]+$')
 
 def parse_tag_input(raw_text):
     """Split a tag-add entry into individual clean tag names (ON-95).
