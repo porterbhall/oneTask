@@ -51,6 +51,29 @@
             <p class="no-items">No tasks to display</p>
         {% endif %}
 
+        {% if completed_window_enabled %}
+        <h2 class="completed-deleted-heading">Completed or deleted</h2>
+        <div id="completed-deleted-section">
+            {% if completed_and_deleted %}
+                {% for item in completed_and_deleted %}
+                <div class="list-task-row completed-deleted-row">
+                    <div class="completed-deleted-info">
+                        <div class="list-task-name completed-deleted-name status-{{ item.status }}">{{ item.name }}</div>
+                        {% if item.end_display %}
+                        <div class="list-task-meta">{{ 'Deleted' if item.status == 'deleted' else 'Completed' }} {{ item.end_display }}</div>
+                        {% endif %}
+                    </div>
+                    <button class="completed-deleted-action-btn" onclick="restoreOrUncomplete('{{ item.uuid }}', this)">
+                        {{ 'Restore' if item.status == 'deleted' else 'Uncomplete' }}
+                    </button>
+                </div>
+                {% endfor %}
+            {% else %}
+                <p class="no-items" id="completed-deleted-empty">Nothing completed or deleted recently</p>
+            {% endif %}
+        </div>
+        {% endif %}
+
         <div class="list-actions">
             <a href="/?report={{ report_name }}">← Back to OneTask</a>
         </div>
@@ -68,6 +91,39 @@
                 }, 1000);
             }).catch(function(err) {
                 console.error('Failed to copy stats: ', err);
+            });
+        }
+
+        // Completed/deleted section (ON-98) — Uncomplete and Restore are the
+        // same mechanical action (status -> pending), so both reuse the
+        // existing /uncomplete_task endpoint rather than adding a new one.
+        // Acts by UUID from the query result, independent of the card's own
+        // in-memory state — this is a plain, separate page.
+        function restoreOrUncomplete(uuid, buttonEl) {
+            buttonEl.disabled = true;
+            fetch('/uncomplete_task', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ task_id: uuid })
+            })
+            .then(response => response.json())
+            .then(data => {
+                if (data.status === 'uncompleted') {
+                    const row = buttonEl.closest('.completed-deleted-row');
+                    if (row) row.remove();
+                    const section = document.getElementById('completed-deleted-section');
+                    if (section && !section.querySelector('.completed-deleted-row')) {
+                        section.innerHTML = '<p class="no-items" id="completed-deleted-empty">Nothing completed or deleted recently</p>';
+                    }
+                } else {
+                    buttonEl.disabled = false;
+                    alert('Error: ' + (data.error || 'could not restore task'));
+                }
+            })
+            .catch(error => {
+                console.error('Error restoring/uncompleting task:', error);
+                buttonEl.disabled = false;
+                alert('Error restoring task');
             });
         }
 

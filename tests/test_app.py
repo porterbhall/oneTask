@@ -9,6 +9,7 @@ from app import (
     app,
     convert_taskwarrior_estimate_to_seconds,
     format_due_date_display,
+    format_end_date_display,
     format_estimate_display,
     format_task_for_display,
     get_resolved_config,
@@ -105,6 +106,14 @@ class TestConvertEstimateToSeconds:
 
     def test_case_insensitive(self):
         assert convert_taskwarrior_estimate_to_seconds('2H') == 7200
+
+    def test_days(self):
+        # Added for ON-98 — ONETASK_COMPLETED_WINDOW's own examples use
+        # '7days', which silently parsed to 0 before 'd' was handled.
+        assert convert_taskwarrior_estimate_to_seconds('7days') == 604800
+
+    def test_days_short_form(self):
+        assert convert_taskwarrior_estimate_to_seconds('7d') == 604800
 
 
 # ---------------------------------------------------------------------------
@@ -276,6 +285,79 @@ class TestGetDefaultDurationSeconds:
 
 
 # ---------------------------------------------------------------------------
+# Unit tests: get_completed_window_seconds (ON-98)
+# ---------------------------------------------------------------------------
+
+class TestGetCompletedWindowSeconds:
+    def test_unset_is_disabled(self, monkeypatch):
+        from app import get_completed_window_seconds
+        monkeypatch.delenv('ONETASK_COMPLETED_WINDOW', raising=False)
+        seconds, enabled = get_completed_window_seconds()
+        assert seconds == 0
+        assert enabled is False
+
+    def test_explicit_zero_is_disabled(self, monkeypatch):
+        # Unlike ONETASK_DEFAULT_DURATION, 0 has no meaning here other than
+        # "off" — there's no count-up-immediately equivalent for a window.
+        from app import get_completed_window_seconds
+        monkeypatch.setenv('ONETASK_COMPLETED_WINDOW', '0')
+        seconds, enabled = get_completed_window_seconds()
+        assert seconds == 0
+        assert enabled is False
+
+    def test_configured_duration_string_is_parsed(self, monkeypatch):
+        from app import get_completed_window_seconds
+        monkeypatch.setenv('ONETASK_COMPLETED_WINDOW', '2hours')
+        seconds, enabled = get_completed_window_seconds()
+        assert seconds == 7200
+        assert enabled is True
+
+    def test_garbage_with_no_digits_is_disabled(self, monkeypatch):
+        from app import get_completed_window_seconds
+        monkeypatch.setenv('ONETASK_COMPLETED_WINDOW', 'banana')
+        seconds, enabled = get_completed_window_seconds()
+        assert seconds == 0
+        assert enabled is False
+
+
+# ---------------------------------------------------------------------------
+# Unit tests: get_completed_and_deleted_tasks (ON-98)
+# ---------------------------------------------------------------------------
+
+class TestGetCompletedAndDeletedTasks:
+    @patch('app.subprocess.run')
+    def test_filter_args_precede_export_and_group_the_or(self, mock_run):
+        # Ad-hoc filters (unlike a named report) must come BEFORE the
+        # command, and the OR needs explicit parens — confirmed empirically
+        # against a live TaskWarrior install, not just assumed.
+        from app import get_completed_and_deleted_tasks
+        mock_run.return_value = mock_result(stdout='[]')
+        get_completed_and_deleted_tasks(3600)
+        assert mock_run.call_args[0][0] == task_args(
+            'end.after:now-3600s', '(', 'status:completed', 'or', 'status:deleted', ')', 'export'
+        )
+
+    @patch('app.subprocess.run')
+    def test_returns_parsed_tasks(self, mock_run):
+        from app import get_completed_and_deleted_tasks
+        mock_run.return_value = mock_result(stdout=json.dumps([SAMPLE_TASK]))
+        result = get_completed_and_deleted_tasks(3600)
+        assert result == [SAMPLE_TASK]
+
+    @patch('app.subprocess.run')
+    def test_command_failure_returns_empty_list(self, mock_run):
+        from app import get_completed_and_deleted_tasks
+        mock_run.return_value = mock_result(returncode=1, stderr='error')
+        assert get_completed_and_deleted_tasks(3600) == []
+
+    @patch('app.subprocess.run')
+    def test_blank_output_returns_empty_list(self, mock_run):
+        from app import get_completed_and_deleted_tasks
+        mock_run.return_value = mock_result(stdout='')
+        assert get_completed_and_deleted_tasks(3600) == []
+
+
+# ---------------------------------------------------------------------------
 # Unit tests: sorting_key
 # ---------------------------------------------------------------------------
 
@@ -305,6 +387,17 @@ class TestFormatDueDateDisplay:
 
     def test_unparseable_date_returned_as_is(self):
         assert format_due_date_display('not-a-date') == 'not-a-date'
+
+
+class TestFormatEndDateDisplay:
+    """format_end_date_display (ON-98) delegates straight to
+    format_due_date_display — same on-disk TaskWarrior date format."""
+
+    def test_none_returns_none(self):
+        assert format_end_date_display(None) is None
+
+    def test_valid_taskwarrior_date(self):
+        assert format_end_date_display('20260827T140000Z') == 'Aug 27, 2026'
 
 
 class TestFormatEstimateDisplay:
@@ -795,6 +888,74 @@ class TestShowTaskList:
         response = client.get('/list')
         assert response.status_code == 200
         assert b'>50m<' in response.data
+
+    @patch('app.subprocess.run')
+    def test_completed_deleted_section_hidden_when_window_unset(self, mock_run, client, monkeypatch):
+        monkeypatch.delenv('ONETASK_COMPLETED_WINDOW', raising=False)
+        mock_run.side_effect = [
+            CONFIG_WITH_ESTIMATE_UDA,
+            mock_result(stdout=json.dumps([SAMPLE_TASK])),
+            mock_result(stdout=''),
+        ]
+        response = client.get('/list')
+        assert response.status_code == 200
+        assert b'Completed or deleted' not in response.data
+        # No 4th call — the query is skipped entirely, not just hidden in the template.
+        assert mock_run.call_count == 3
+
+    @patch('app.subprocess.run')
+    def test_completed_deleted_section_shown_with_rows(self, mock_run, client, monkeypatch):
+        monkeypatch.setenv('ONETASK_COMPLETED_WINDOW', '7days')
+        completed = {**SAMPLE_TASK, 'uuid': 'aaaa1111-0000-0000-0000-000000000000',
+                     'description': 'Finished thing', 'status': 'completed', 'end': '20260827T120000Z'}
+        deleted = {**SAMPLE_TASK, 'uuid': 'bbbb2222-0000-0000-0000-000000000000',
+                   'description': 'Removed thing', 'status': 'deleted', 'end': '20260826T120000Z'}
+        mock_run.side_effect = [
+            CONFIG_WITH_ESTIMATE_UDA,
+            mock_result(stdout=json.dumps([SAMPLE_TASK])),
+            mock_result(stdout=''),
+            mock_result(stdout=json.dumps([completed, deleted])),
+        ]
+        response = client.get('/list')
+        assert response.status_code == 200
+        body = response.data.decode()
+        assert 'Completed or deleted' in body
+        assert 'Finished thing' in body
+        assert 'Removed thing' in body
+        assert 'Uncomplete' in body
+        assert 'Restore' in body
+        assert 'status-completed' in body
+        assert 'status-deleted' in body
+        assert mock_run.call_count == 4
+
+    @patch('app.subprocess.run')
+    def test_completed_deleted_sorted_most_recent_first(self, mock_run, client, monkeypatch):
+        monkeypatch.setenv('ONETASK_COMPLETED_WINDOW', '7days')
+        older = {**SAMPLE_TASK, 'uuid': 'aaaa1111-0000-0000-0000-000000000000',
+                 'description': 'Older one', 'status': 'completed', 'end': '20260825T120000Z'}
+        newer = {**SAMPLE_TASK, 'uuid': 'bbbb2222-0000-0000-0000-000000000000',
+                 'description': 'Newer one', 'status': 'completed', 'end': '20260827T120000Z'}
+        mock_run.side_effect = [
+            CONFIG_WITH_ESTIMATE_UDA,
+            mock_result(stdout=json.dumps([SAMPLE_TASK])),
+            mock_result(stdout=''),
+            mock_result(stdout=json.dumps([older, newer])),  # deliberately out of order
+        ]
+        response = client.get('/list')
+        body = response.data.decode()
+        assert body.index('Newer one') < body.index('Older one')
+
+    @patch('app.subprocess.run')
+    def test_completed_deleted_empty_state_message(self, mock_run, client, monkeypatch):
+        monkeypatch.setenv('ONETASK_COMPLETED_WINDOW', '7days')
+        mock_run.side_effect = [
+            CONFIG_WITH_ESTIMATE_UDA,
+            mock_result(stdout=json.dumps([SAMPLE_TASK])),
+            mock_result(stdout=''),
+            mock_result(stdout='[]'),
+        ]
+        response = client.get('/list')
+        assert b'Nothing completed or deleted recently' in response.data
 
 
 # ---------------------------------------------------------------------------

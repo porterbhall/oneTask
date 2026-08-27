@@ -119,6 +119,49 @@ def get_default_duration_seconds():
         return DEFAULT_ESTIMATE_SECONDS, False
     return convert_taskwarrior_estimate_to_seconds(raw), True
 
+def get_completed_window_seconds():
+    """(seconds, enabled) for the optional ONETASK_COMPLETED_WINDOW env var
+    (ON-98) — the time window for the list's "Completed or deleted"
+    section (tasks with an `end` timestamp within the last N). Reuses the
+    same TaskWarrior-style duration parser as ONETASK_DEFAULT_DURATION.
+
+    Unlike that one, 0 is NOT a meaningful window — an explicit 0, an unset
+    value, and unparseable garbage all mean the same thing here: hide the
+    section (opt-in, default off, per the epic's config decision)."""
+    raw = os.environ.get('ONETASK_COMPLETED_WINDOW', '').strip()
+    if not raw or not any(c.isdigit() for c in raw):
+        return 0, False
+    seconds = convert_taskwarrior_estimate_to_seconds(raw)
+    return seconds, seconds > 0
+
+def get_completed_and_deleted_tasks(window_seconds):
+    """Tasks with `end` within the last window_seconds, both completed AND
+    deleted (ON-98) — a stateless query against what TaskWarrior already
+    persists, no session tracking. Read-only, so hooks stay off (ON-65).
+
+    The filter is an ad-hoc expression, not a named report, so — unlike
+    get_tasks_from_report()'s `task export <report>`, where TaskWarrior
+    resolves the report's own filter — the filter terms must come BEFORE
+    `export` on the command line, and the `or` needs explicit parens to
+    group correctly (confirmed empirically against a live TaskWarrior 3.4.2
+    install; ad-hoc filters and named reports are not interchangeable in
+    argument order)."""
+    try:
+        filter_args = [
+            f'end.after:now-{window_seconds}s',
+            '(', 'status:completed', 'or', 'status:deleted', ')',
+        ]
+        result = run_task_command(filter_args + ['export'])
+        if result.returncode != 0:
+            print(f"DEBUG: Error querying completed/deleted tasks: {result.stderr}")
+            return []
+        if not result.stdout.strip():
+            return []
+        return json.loads(result.stdout)
+    except Exception as e:
+        print(f"DEBUG: Error querying completed/deleted tasks: {e}")
+        return []
+
 def estimate_uda_defined(config):
     """Whether the `estimate` UDA is configured, per resolved TaskWarrior config (ON-66/A2)."""
     return any(key.startswith('uda.estimate.') for key in config)
@@ -243,7 +286,9 @@ def convert_taskwarrior_estimate_to_seconds(estimate):
     total_seconds = 0
     estimate = estimate.lower()
     
-    # Handle TaskWarrior format: '5mins', '2h', '1h30m'
+    # Handle TaskWarrior format: '5mins', '2h', '1h30m', '7days'. 'd' was
+    # added for ON-98 (ONETASK_COMPLETED_WINDOW's own examples use '7days'
+    # — discovered missing when that literal example silently parsed to 0).
     current_number = ''
     for char in estimate:
         if char.isdigit():
@@ -257,6 +302,8 @@ def convert_taskwarrior_estimate_to_seconds(estimate):
                     total_seconds += num * 60
                 elif char == 's':
                     total_seconds += num
+                elif char == 'd':
+                    total_seconds += num * 86400
                 current_number = ''
     
     # Add any remaining number as minutes if no unit specified
@@ -273,6 +320,11 @@ def format_due_date_display(due_date):
         return datetime.strptime(due_date, '%Y%m%dT%H%M%SZ').strftime('%b %d, %Y')
     except ValueError:
         return due_date
+
+def format_end_date_display(end_date):
+    """Format a TaskWarrior `end` timestamp for display (ON-98) — same
+    on-disk format as due dates, so this delegates straight through."""
+    return format_due_date_display(end_date)
 
 def format_estimate_display(total_seconds):
     """Format a task's time estimate in seconds as a short human string, or None if unset"""
@@ -451,6 +503,24 @@ def show_task_list():
         estimate_display = format_estimate_display(total_estimate_seconds) or '0m'
         completed_today = count_completed_today()
 
+        # "Completed or deleted" section (ON-98) — stateless, opt-in via
+        # ONETASK_COMPLETED_WINDOW; omitted entirely (not just empty) when
+        # unset/0, same signal the template uses to hide the section.
+        window_seconds, window_enabled = get_completed_window_seconds()
+        completed_and_deleted = []
+        if window_enabled:
+            raw_ended = get_completed_and_deleted_tasks(window_seconds)
+            # Most-recent-first: TaskWarrior's `end` is a fixed-width,
+            # zero-padded UTC basic-ISO8601 string, so it sorts correctly
+            # as plain text — no date parsing needed.
+            raw_ended.sort(key=lambda t: t.get('end', ''), reverse=True)
+            completed_and_deleted = [{
+                'uuid': task.get('uuid', ''),
+                'name': task.get('description', 'No description'),
+                'status': task.get('status', ''),
+                'end_display': format_end_date_display(task.get('end')),
+            } for task in raw_ended]
+
         return render_template('list.html',
                              tasks=tasks,
                              report_name=report_name,
@@ -458,7 +528,9 @@ def show_task_list():
                              requested_report_name=requested_report_name,
                              pending_count=pending_count,
                              completed_today=completed_today,
-                             estimate_display=estimate_display)
+                             estimate_display=estimate_display,
+                             completed_and_deleted=completed_and_deleted,
+                             completed_window_enabled=window_enabled)
 
     except Exception as e:
         error_msg = f"Error building task list: {str(e)}"

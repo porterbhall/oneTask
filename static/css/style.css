@@ -916,6 +916,67 @@ body {
     color: #888;
 }
 
+.completed-deleted-heading {
+    margin: 30px 0 10px;
+    font-size: 18px;
+    color: #c2c2c2;
+}
+
+/* Completed/deleted rows (ON-98) aren't links (no dead-end card link — the
+   task may no longer be in any report), just informational rows with an
+   inline action, so cursor/hover from the shared .list-task-row are
+   overridden here rather than making the whole row look clickable. */
+.completed-deleted-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    cursor: default;
+}
+
+.completed-deleted-row:hover {
+    background-color: #363636;
+}
+
+.completed-deleted-info {
+    flex: 1;
+    min-width: 0;
+}
+
+.completed-deleted-name {
+    text-decoration: line-through;
+}
+
+/* Reuses the same #999 as the card's existing .completed class, and the
+   same #d32f2f red as overdue/delete elsewhere — no new colors. */
+.completed-deleted-name.status-completed {
+    color: #999;
+}
+
+.completed-deleted-name.status-deleted {
+    color: #d32f2f;
+}
+
+.completed-deleted-action-btn {
+    flex-shrink: 0;
+    background-color: #4d4d4d;
+    color: #c2c2c2;
+    border: none;
+    border-radius: 3px;
+    padding: 6px 12px;
+    cursor: pointer;
+    font-size: 12px;
+}
+
+.completed-deleted-action-btn:hover {
+    background-color: #5d5d5d;
+}
+
+.completed-deleted-action-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
 .list-actions {
     margin-top: 30px;
     text-align: center;

@@ -124,6 +124,7 @@ OneTask is configured through environment variables.
 | `ONETASK_PASSWORD` | _(unset)_ | Password required to access the app. **Mandatory** for LAN access |
 | `ONETASK_DEBUG` | _(off)_ | Enables Flask's debug mode/reloader. **Only takes effect when bound to localhost** — if set while bound beyond localhost, it is force-disabled with a notice, since the debugger allows remote code execution |
 | `ONETASK_DEFAULT_DURATION` | `25min` | Timer length used for a task with no `estimate` value (see [Time Estimate Formats](#time-estimate-formats) for accepted formats). Set to `0` to start counting up from 0:00 immediately instead of counting down first. Missing or unparseable values fall back to the 25-minute built-in default |
+| `ONETASK_COMPLETED_WINDOW` | _(unset — section hidden)_ | Shows a "Completed or deleted" section at the bottom of the list, listing tasks whose `end` timestamp falls within this window (e.g. `2hours`, `7days` — same duration formats as `ONETASK_DEFAULT_DURATION`), with inline Uncomplete/Restore. `0`, unset, or unparseable all hide the section |
 
 ### Enabling access from your phone / other devices
 
@@ -209,7 +210,7 @@ The application works with standard TaskWarrior tasks and supports:
 OneTask parses time estimates in multiple formats:
 - ISO 8601 duration: `PT1H30M`
 - Human readable: `1h 30m`, `45m`, `2h`
-- Numeric with units: `90m`, `1.5h`, `30s`
+- Numeric with units: `90m`, `1.5h`, `30s`, `7d`
 
 ## API Endpoints
 
@@ -224,6 +225,8 @@ Main application interface. Loads and displays tasks from the specified TaskWarr
 
 ### GET /list
 Combined stats summary (pending count, completed today, estimate remaining) and full task list for the specified report, for browsing or jumping to a specific task. Each row links back to `/` with the task pre-selected. Reached via the "List" link (upper left) on the main interface.
+
+If `ONETASK_COMPLETED_WINDOW` is set, a "Completed or deleted" section also renders at the bottom — tasks whose `end` timestamp falls within that window, most-recent-first, each with an inline Uncomplete (completed) or Restore (deleted) action. Stateless: it's a live TaskWarrior query, not remembered session state, so it works the same after a server restart or on a task that ended days ago.
 
 **Query Parameters:**
 - `report` (optional): TaskWarrior report name (default: "next")
@@ -241,14 +244,22 @@ Marks a task as complete in TaskWarrior.
 ```
 
 ### POST /uncomplete_task
-Marks a completed task as incomplete (reopens it).
+Marks a completed task as incomplete (reopens it). Also doubles as the Restore action for a deleted task (the "Completed or deleted" list section, ON-98) — mechanically the same `status:pending` flip either way, so there's no separate restore endpoint.
 
 **Request Body:**
-- `task_id`: TaskWarrior task ID to mark as incomplete
+- `task_id`: TaskWarrior task ID (or UUID) to mark as incomplete/restore
 
 **Response:**
 ```json
 {"status": "success", "message": "Task marked as incomplete"}
+```
+
+### POST /task/\<id\>/delete
+Soft-deletes a task (TaskWarrior `delete`, not `purge` — recoverable via the List's Restore action or `task undo`). The frontend gates this behind a confirmation modal; the endpoint itself performs the delete unconditionally once called.
+
+**Response:**
+```json
+{"status": "success"}
 ```
 
 ### POST /capture
