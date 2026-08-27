@@ -332,7 +332,7 @@ Adds one or more tags to a task in a single call. Body: `{"tag": "tagname"}`, or
 ```
 
 ### DELETE /task/\<id\>/tags/\<tag\>
-Removes a specific tag from a task.
+Removes a specific tag from a task. The tag is validated against the same `[A-Za-z0-9_]` character set as adding a tag (ON-101) — an invalid tag name (e.g. containing `-` or `:`) is rejected with a 400 rather than reaching TaskWarrior, for the same description-overwrite reason as the add path.
 
 ### GET /tasks/by-tag/\<tag\>
 Returns all tasks with the given tag.

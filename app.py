@@ -1046,6 +1046,14 @@ def remove_task_tag(task_id, tag):
     try:
         from urllib.parse import unquote
         decoded_tag = unquote(tag)
+        # ON-101 audit: -tag is exposed to the identical description-overwrite
+        # hazard as +tag was (ON-95) — confirmed empirically that
+        # `modify -bad:tag` on an unrecognized removal token silently
+        # overwrites the description exactly like the add path did. This
+        # route takes the tag from the URL path with no prior validation,
+        # so it needed the same _VALID_TAG_PATTERN gate as add_task_tag.
+        if not _VALID_TAG_PATTERN.match(decoded_tag):
+            return jsonify({'error': 'Invalid tag', 'status': 'error'}), 400
         result = run_task_command([str(task_id), 'modify', f'-{decoded_tag}'], hooks=True)
         if result.returncode != 0:
             return jsonify({'error': f'TaskWarrior modify failed: {result.stderr}', 'status': 'error'}), 500

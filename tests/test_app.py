@@ -1584,6 +1584,45 @@ class TestAddTaskTag:
 
 
 # ---------------------------------------------------------------------------
+# Route tests: DELETE /task/<id>/tags/<tag> (hardened in ON-101)
+# ---------------------------------------------------------------------------
+
+class TestRemoveTaskTag:
+    @patch('app.subprocess.run')
+    def test_happy_path(self, mock_run, client):
+        mock_run.return_value = mock_result(stdout='Modified 1 task.')
+        response = client.delete('/task/abc12345/tags/urgent')
+        assert response.status_code == 200
+        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'modify', '-urgent')
+
+    @patch('app.subprocess.run')
+    def test_url_decodes_tag(self, mock_run, client):
+        mock_run.return_value = mock_result(stdout='Modified 1 task.')
+        response = client.delete('/task/abc12345/tags/work%5Fstuff')  # %5F = '_'
+        assert response.status_code == 200
+        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'modify', '-work_stuff')
+
+    def test_colon_rejected_without_firing_modify(self, client):
+        # ON-101 finding: this path had zero validation before this story.
+        # Confirmed empirically against a live TaskWarrior install that
+        # `modify -bad:tag` silently overwrites the description exactly
+        # like the ON-95 add-path bug — never let it reach the command line.
+        response = client.delete('/task/abc12345/tags/bad%3Atag')  # %3A = ':'
+        assert response.status_code == 400
+
+    def test_hyphen_rejected_without_firing_modify(self, client):
+        # Also confirmed empirically — same failure mode as ':'.
+        response = client.delete('/task/abc12345/tags/test-tag')
+        assert response.status_code == 400
+
+    @patch('app.subprocess.run')
+    def test_subprocess_failure_returns_500(self, mock_run, client):
+        mock_run.return_value = mock_result(returncode=1, stderr='error')
+        response = client.delete('/task/abc12345/tags/urgent')
+        assert response.status_code == 500
+
+
+# ---------------------------------------------------------------------------
 # Route tests: GET /stats
 # ---------------------------------------------------------------------------
 
