@@ -38,11 +38,22 @@ def run_task_command(args, timeout=30, hooks=False):
     hooks on every page load (ON-65). Mutating calls — anything that changes
     task state — must pass hooks=True so on-modify/on-add hooks fire the same
     way they do from the CLI (ON-93).
+
+    stdin is explicitly closed (ON-107): TaskWarrior prints — and, given a
+    live stdin, blocks on — a "This is a recurring task. Do you want to
+    modify all pending recurrences...? (yes/no)" prompt for any write to a
+    recurring task instance, regardless of rc.confirmation=off. Without this,
+    the subprocess inherits the Flask process's own stdin; if that's a live,
+    open terminal nobody's typing into, the read blocks until `timeout` below
+    kills it. Confirmed empirically: closing stdin makes TaskWarrior default
+    the prompt instantly and correctly scope the change to just this one
+    instance, not the whole series.
     """
     overrides = RC_OVERRIDES if hooks else RC_OVERRIDES + ['rc.hooks=off']
     try:
         result = subprocess.run(
             ['task'] + overrides + args,
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=True,
             timeout=timeout

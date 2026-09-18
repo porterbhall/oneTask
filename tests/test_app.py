@@ -618,6 +618,17 @@ class TestRunTaskCommand:
         run_task_command(['export'])
         assert 'rc.hooks=off' in mock_run.call_args[0][0]
 
+    @patch('app.subprocess.run')
+    def test_stdin_is_closed(self, mock_run):
+        # ON-107: TaskWarrior's recurring-task confirmation prompt blocks on
+        # a live stdin regardless of rc.confirmation=off; closing it makes
+        # the prompt default instantly instead of hanging until timeout.
+        import subprocess as subprocess_module
+        from app import run_task_command
+        mock_run.return_value = mock_result(stdout='')
+        run_task_command(['export'])
+        assert mock_run.call_args.kwargs['stdin'] == subprocess_module.DEVNULL
+
 
 class TestGetResolvedConfig:
     @patch('app.subprocess.run')

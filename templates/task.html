@@ -193,6 +193,13 @@
     var completedTasks = [];
     var lastUpdateTime = moment();
     var taskDetailsVisible = false;
+    // ON-107: guards against a second saveUrl() firing (Enter pressed twice,
+    // or Save double-clicked) while the first request is still in flight —
+    // TaskWarrior serializes writes to the same task, so an overlapping
+    // second `modify` can sit blocked long enough to hit run_task_command's
+    // 30s timeout and surface a confusing error even though the first save
+    // already succeeded.
+    var urlSaveInFlight = false;
 
     // Function to update the link based on task URL
     function updateLink() {
@@ -1063,6 +1070,7 @@ function updateCountdown() {
 
     function saveUrl() {
         if (!urlConfigured) return;
+        if (urlSaveInFlight) return;
         const taskId = task_id[currentTaskIndex];
         const newUrl = document.getElementById('url-input').value.trim();
 
@@ -1071,6 +1079,7 @@ function updateCountdown() {
             return;
         }
 
+        urlSaveInFlight = true;
         fetch(`/task/${taskId}/url`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
@@ -1090,6 +1099,9 @@ function updateCountdown() {
         .catch(error => {
             console.error('Error:', error);
             alert('Error saving URL');
+        })
+        .finally(() => {
+            urlSaveInFlight = false;
         });
     }
 
@@ -1447,6 +1459,10 @@ function updateCountdown() {
     });
     document.getElementById('save-url').onclick = saveUrl;
     document.getElementById('cancel-url').onclick = hideUrlForm;
+    document.getElementById('url-input').addEventListener('keydown', function(event) {
+        if (event.key === 'Enter') { event.preventDefault(); saveUrl(); }
+        if (event.key === 'Escape') { hideUrlForm(); }
+    });
     document.getElementById('save-due-date').onclick = saveDueDate;
     document.getElementById('due-today').onclick = setDueToday;
     document.getElementById('postpone-due-btn').onclick = postponeTask;
