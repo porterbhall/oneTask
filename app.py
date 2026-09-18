@@ -1070,6 +1070,14 @@ def parse_tag_input(raw_text):
     comma or space would. Repeated/trailing delimiters collapse to no
     empty tokens.
 
+    Each '-' in a token is converted to '_' before validation (ON-100) —
+    '-' isn't a delimiter here (only ',', '+', and whitespace are), so a
+    hyphenated entry like 'work-project' would otherwise just fail
+    _VALID_TAG_PATTERN and be dropped silently. Converting instead of
+    dropping preserves the user's intent and matches TaskWarrior's own
+    conventional underscore tag style ('a--b' -> 'a__b': every '-' converts,
+    they don't collapse).
+
     Tokens are then filtered against _VALID_TAG_PATTERN before being
     returned — a deliberate departure from the original "defer
     character-validity to TaskWarrior" plan. Confirmed empirically: a
@@ -1084,7 +1092,8 @@ def parse_tag_input(raw_text):
     if not raw_text:
         return []
     tokens = re.split(r'[,+\s]+', raw_text.strip())
-    return [t for t in tokens if t and _VALID_TAG_PATTERN.match(t)]
+    converted = [t.replace('-', '_') for t in tokens if t]
+    return [t for t in converted if _VALID_TAG_PATTERN.match(t)]
 
 @app.route('/task/<task_id>/tags', methods=['POST'])
 def add_task_tag(task_id):

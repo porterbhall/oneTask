@@ -193,17 +193,20 @@ class TestParseTagInput:
         # description. This must never reach the command line.
         assert parse_tag_input('goodtag, bad:tag') == ['goodtag']
 
-    def test_hyphen_rejected_not_passed_through(self):
-        # Regression test — Porter caught this in manual testing after
-        # ON-95 shipped. Hyphen was originally (wrongly) in the allowed
-        # set; confirmed empirically that '+test-tag' hits the exact same
-        # description-overwrite failure as ':' does. TaskWarrior only
-        # accepts alphanumeric + underscore in a +tag modifier.
-        assert parse_tag_input('goodtag, test-tag') == ['goodtag']
+    def test_hyphen_converted_to_underscore(self):
+        # ON-100: hyphen is never passed raw to `modify` (same
+        # description-overwrite hazard as ON-95's ':' finding — hyphen was
+        # originally, wrongly, in the allowed set), but rather than drop a
+        # hyphenated entry outright, it's converted so intent is preserved.
+        assert parse_tag_input('goodtag, test-tag') == ['goodtag', 'test_tag']
+        assert parse_tag_input('work-project') == ['work_project']
+
+    def test_repeated_hyphens_each_convert_without_collapsing(self):
+        # Ticket's own example: 'a--b' -> 'a__b', not 'a_b'.
+        assert parse_tag_input('a--b') == ['a__b']
 
     def test_all_invalid_returns_empty_list(self):
         assert parse_tag_input('bad:tag, also:bad') == []
-        assert parse_tag_input('test-tag') == []
 
 
 # ---------------------------------------------------------------------------
