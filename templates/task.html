@@ -486,6 +486,18 @@ function updateCountdown() {
                 }
                 document.getElementById('new-annotation').focus();
                 break;
+            case '=':
+            case '+':
+                // ON-104: '=' (unshifted) and '+' (shifted) both open the
+                // tag-add field, mirroring 'a' for notes. Only reachable
+                // outside inputs (see the early-return above), so this never
+                // collides with '+' as a delimiter inside the tag field itself.
+                event.preventDefault();
+                if (!taskDetailsVisible) {
+                    toggleTaskDetails();
+                }
+                openTagAddForm();
+                break;
             case 't':
                 event.preventDefault();
                 enterTitleEditMode();
@@ -847,6 +859,12 @@ function updateCountdown() {
             }
         })
         .catch(err => console.error('Error adding tag:', err));
+    }
+
+    function openTagAddForm() {
+        document.getElementById('tag-add-form').style.display = 'block';
+        document.getElementById('new-tag-input').focus();
+        updateTagsDisplay(false);
     }
 
     function removeTag(tag) {
@@ -1467,11 +1485,7 @@ function updateCountdown() {
     document.getElementById('due-today').onclick = setDueToday;
     document.getElementById('postpone-due-btn').onclick = postponeTask;
     document.getElementById('remove-due-date').onclick = removeDueDate;
-    document.getElementById('add-tag-btn').onclick = function() {
-        document.getElementById('tag-add-form').style.display = 'block';
-        document.getElementById('new-tag-input').focus();
-        updateTagsDisplay(false);
-    };
+    document.getElementById('add-tag-btn').onclick = openTagAddForm;
     document.getElementById('remove-tag-btn').onclick = function() {
         document.getElementById('tag-add-form').style.display = 'none';
         updateTagsDisplay(!tagRemoveMode);
