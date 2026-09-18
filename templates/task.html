@@ -90,7 +90,21 @@
                 <button id="remove-due-date">Remove</button>
             </div>
         </div>
-        
+
+        <!-- Estimate Section (hidden entirely when the estimate UDA isn't configured — ON-66/A2) -->
+        <div class="details-section" id="estimate-section">
+            <h4>Estimate</h4>
+            <div id="estimate-display" class="estimate-display"></div>
+            <div class="estimate-buttons" id="estimate-buttons"></div>
+            <div class="estimate-edit-form" id="estimate-edit-form" style="display: none;">
+                <input type="text" id="estimate-input" placeholder="e.g. 45m, 2h">
+                <div class="estimate-form-buttons">
+                    <button id="save-estimate">Save</button>
+                    <button id="cancel-estimate">Cancel</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Tags Section -->
         <div class="details-section">
             <div class="tags-section-header">
@@ -169,6 +183,9 @@
     var numTasks = {{ num_tasks }}; // Total number of tasks
     var remainingSeconds = {{ remaining_seconds | tojson }};
     var estimateIsDefault = {{ estimate_is_default | tojson }};
+    var estimateDisplays = {{ estimate_displays | tojson }};
+    var estimateConfigured = {{ estimate_configured | tojson }};
+    var estimateButtons = {{ estimate_buttons | tojson }};
     var formatted_tasks = {{ formatted_tasks | tojson }};
     var task_id = {{ task_id | tojson }};
     var taskseries_id = {{ taskseries_id | tojson }};
@@ -689,6 +706,7 @@ function updateCountdown() {
         updateDetailsTitleDisplay();
         updateAnnotationsDisplay();
         updateDueDateDisplay();
+        updateEstimateSectionDisplay();
         document.getElementById('tag-add-form').style.display = 'none';
         document.getElementById('new-tag-input').value = '';
         updateTagsDisplay(false);
@@ -1450,6 +1468,114 @@ function updateCountdown() {
         container.appendChild(noneBtn);
     }
 
+    // Estimate quick-entry (ON-106). The preset row is static across tasks
+    // (rendered once at init, not per task switch, unlike priority's
+    // segmented control which needs per-task highlighting) — it's pure
+    // action buttons, not also a current-value display, matching the Due
+    // Date section's Save/Today/Postpone/Remove buttons.
+    function renderEstimateButtons() {
+        const container = document.getElementById('estimate-buttons');
+        if (!container) return;
+        container.innerHTML = '';
+
+        estimateButtons.forEach(function(preset) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.textContent = preset.label;
+            btn.onclick = function() { applyEstimateDuration(preset.duration); };
+            container.appendChild(btn);
+        });
+
+        const otherBtn = document.createElement('button');
+        otherBtn.type = 'button';
+        otherBtn.textContent = 'Other';
+        otherBtn.onclick = openEstimateOtherForm;
+        container.appendChild(otherBtn);
+    }
+
+    function openEstimateOtherForm() {
+        document.getElementById('estimate-input').value = '';
+        document.getElementById('estimate-edit-form').style.display = 'block';
+        document.getElementById('estimate-input').focus();
+    }
+
+    function hideEstimateOtherForm() {
+        const form = document.getElementById('estimate-edit-form');
+        if (form) form.style.display = 'none';
+    }
+
+    function saveEstimateOther() {
+        const duration = document.getElementById('estimate-input').value.trim();
+        if (!duration) {
+            alert('Please enter a duration');
+            return;
+        }
+        applyEstimateDuration(duration);
+    }
+
+    // Mirrors app.py's format_estimate_display() exactly, so a value set
+    // through this panel displays identically to one read back from a
+    // fresh page load without a round-trip to re-fetch it.
+    function formatEstimateDisplay(totalSeconds) {
+        if (!totalSeconds) return null;
+        const hours = Math.floor(totalSeconds / 3600);
+        const minutes = Math.floor((totalSeconds % 3600) / 60);
+        if (hours > 0) {
+            return minutes ? `${hours}h ${minutes}m` : `${hours}h`;
+        }
+        return `${minutes}m`;
+    }
+
+    function updateEstimateSectionDisplay() {
+        const section = document.getElementById('estimate-section');
+        if (!section) return;
+        section.style.display = estimateConfigured ? '' : 'none';
+        if (!estimateConfigured) return;
+
+        const label = estimateDisplays[currentTaskIndex];
+        const displayDiv = document.getElementById('estimate-display');
+        displayDiv.textContent = label
+            ? (estimateIsDefault[currentTaskIndex] ? `${label} (default)` : label)
+            : 'Not set';
+        hideEstimateOtherForm();
+    }
+
+    // ON-107 lesson applied here from the start: guards against a second
+    // preset tap / double-clicked Save firing an overlapping request while
+    // the first is still in flight.
+    var estimateSaveInFlight = false;
+    function applyEstimateDuration(duration) {
+        if (!estimateConfigured || estimateSaveInFlight) return;
+        const taskId = task_id[currentTaskIndex];
+        estimateSaveInFlight = true;
+        fetch(`/task/${taskId}/estimate`, {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({duration: duration})
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.status === 'success') {
+                remainingSeconds[currentTaskIndex] = data.seconds;
+                estimateIsDefault[currentTaskIndex] = false;
+                estimateDisplays[currentTaskIndex] = formatEstimateDisplay(data.seconds);
+                updateTaskName();
+                restoreStyles();
+                updateEstimateNotice();
+                updateEstimateSectionDisplay();
+            } else {
+                alert('Error saving estimate: ' + data.error);
+            }
+        })
+        .catch(err => {
+            console.error('Error saving estimate:', err);
+            alert('Error saving estimate');
+        })
+        .finally(() => {
+            estimateSaveInFlight = false;
+        });
+    }
+
     // Event listeners for buttons
     document.getElementById('toggle-details').onclick = toggleTaskDetails;
     document.getElementById('save-annotation').onclick = saveAnnotation;
@@ -1485,6 +1611,12 @@ function updateCountdown() {
     document.getElementById('due-today').onclick = setDueToday;
     document.getElementById('postpone-due-btn').onclick = postponeTask;
     document.getElementById('remove-due-date').onclick = removeDueDate;
+    document.getElementById('save-estimate').onclick = saveEstimateOther;
+    document.getElementById('cancel-estimate').onclick = hideEstimateOtherForm;
+    document.getElementById('estimate-input').addEventListener('keydown', function(event) {
+        if (event.key === 'Enter') { event.preventDefault(); saveEstimateOther(); }
+        if (event.key === 'Escape') { hideEstimateOtherForm(); }
+    });
     document.getElementById('add-tag-btn').onclick = openTagAddForm;
     document.getElementById('remove-tag-btn').onclick = function() {
         document.getElementById('tag-add-form').style.display = 'none';
@@ -1547,6 +1679,7 @@ function updateCountdown() {
     updateLink();
     updateTaskId();
     updateEstimateNotice();
+    renderEstimateButtons();
     // Schedule the next update in 1 second
     countdownInterval = setInterval(updateCountdown, 1000); 
     </script>

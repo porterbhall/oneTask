@@ -800,6 +800,70 @@ body {
     background-color: #5d5d5d;
 }
 
+/* Quick-estimate preset buttons + "Other" (ON-106) — same look as the
+   other details-section action buttons (due date, url), reusing the
+   existing palette rather than introducing a new color. */
+.estimate-display {
+    color: #e6d7d7;
+    margin-bottom: 8px;
+}
+
+.estimate-buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.estimate-buttons button {
+    background-color: #4d4d4d;
+    color: #c2c2c2;
+    border: none;
+    border-radius: 3px;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.estimate-buttons button:hover {
+    background-color: #5d5d5d;
+}
+
+.estimate-edit-form {
+    margin-top: 8px;
+}
+
+.estimate-edit-form input {
+    width: 100%;
+    background-color: #363636;
+    color: #c2c2c2;
+    border: 1px solid #4d4d4d;
+    border-radius: 3px;
+    padding: 8px;
+    margin-bottom: 8px;
+    font-family: inherit;
+    font-size: 13px;
+    box-sizing: border-box;
+}
+
+.estimate-form-buttons {
+    display: flex;
+    gap: 8px;
+}
+
+.estimate-form-buttons button {
+    background-color: #4d4d4d;
+    color: #c2c2c2;
+    border: none;
+    border-radius: 3px;
+    padding: 6px 14px;
+    cursor: pointer;
+    font-size: 13px;
+}
+
+.estimate-form-buttons button:hover {
+    background-color: #5d5d5d;
+}
+
 .no-items {
     color: #888;
     font-style: italic;

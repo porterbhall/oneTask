@@ -420,6 +420,47 @@ class TestGetCompletedWindowSeconds:
 
 
 # ---------------------------------------------------------------------------
+# Unit tests: get_estimate_button_presets (ON-106)
+# ---------------------------------------------------------------------------
+
+class TestGetEstimateButtonPresets:
+    def test_unset_falls_back_to_builtin_defaults(self, monkeypatch):
+        from app import DEFAULT_ESTIMATE_BUTTON_DURATIONS, get_estimate_button_presets
+        monkeypatch.delenv('ONETASK_ESTIMATE_BUTTONS', raising=False)
+        presets = get_estimate_button_presets()
+        assert [p['duration'] for p in presets] == DEFAULT_ESTIMATE_BUTTON_DURATIONS
+        assert [p['label'] for p in presets] == ['15m', '30m', '1h']
+        assert [p['seconds'] for p in presets] == [900, 1800, 3600]
+
+    def test_configured_presets_are_parsed(self, monkeypatch):
+        from app import get_estimate_button_presets
+        monkeypatch.setenv('ONETASK_ESTIMATE_BUTTONS', '10min,20min,45min')
+        presets = get_estimate_button_presets()
+        assert [p['seconds'] for p in presets] == [600, 1200, 2700]
+        assert [p['label'] for p in presets] == ['10m', '20m', '45m']
+
+    def test_whitespace_around_entries_is_trimmed(self, monkeypatch):
+        from app import get_estimate_button_presets
+        monkeypatch.setenv('ONETASK_ESTIMATE_BUTTONS', ' 15min , 30min , 1h ')
+        presets = get_estimate_button_presets()
+        assert [p['duration'] for p in presets] == ['15min', '30min', '1h']
+
+    def test_invalid_preset_raises(self, monkeypatch):
+        # ON-102: same fail-loud contract as the other duration-shaped env
+        # vars — a typo'd preset must not silently disappear or render 0.
+        from app import get_estimate_button_presets
+        monkeypatch.setenv('ONETASK_ESTIMATE_BUTTONS', '15min,2weeks,1h')
+        with pytest.raises(DurationParseError, match='ONETASK_ESTIMATE_BUTTONS'):
+            get_estimate_button_presets()
+
+    def test_blank_falls_back_to_defaults(self, monkeypatch):
+        from app import DEFAULT_ESTIMATE_BUTTON_DURATIONS, get_estimate_button_presets
+        monkeypatch.setenv('ONETASK_ESTIMATE_BUTTONS', '   ')
+        presets = get_estimate_button_presets()
+        assert [p['duration'] for p in presets] == DEFAULT_ESTIMATE_BUTTON_DURATIONS
+
+
+# ---------------------------------------------------------------------------
 # Unit tests: get_completed_and_deleted_tasks (ON-98)
 # ---------------------------------------------------------------------------
 
@@ -1552,6 +1593,56 @@ class TestRemoveTaskUrl:
             Exception('unexpected error'),
         ]
         response = client.delete('/task/abc12345/url')
+        assert response.status_code == 500
+
+
+# ---------------------------------------------------------------------------
+# Route tests: POST /task/<id>/estimate (ON-106)
+# ---------------------------------------------------------------------------
+
+class TestSetTaskEstimate:
+    @patch('app.subprocess.run')
+    def test_happy_path(self, mock_run, client):
+        mock_run.side_effect = [
+            mock_result(stdout='uda.estimate.type=duration\n'),  # get_resolved_config
+            mock_result(stdout='Modified 1 task.'),              # modify
+        ]
+        response = client.post('/task/abc12345/estimate', json={'duration': '30min'})
+        assert response.status_code == 200
+        assert response.get_json() == {'status': 'success', 'seconds': 1800}
+        # PT<seconds>S, never a bare unit — TaskWarrior's own CLI grammar
+        # treats bare 'm' as months, confirmed empirically (ON-106).
+        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'modify', 'estimate:PT1800S')
+
+    def test_missing_duration_returns_400(self, client):
+        response = client.post('/task/abc12345/estimate', json={})
+        assert response.status_code == 400
+
+    @patch('app.subprocess.run')
+    def test_estimate_uda_not_configured_returns_400_without_firing_modify(self, mock_run, client):
+        # ON-66/A2: stock TaskWarrior has no `estimate` UDA — reject cleanly
+        # and never attempt the modify that TaskWarrior would reject anyway.
+        mock_run.return_value = mock_result(stdout='dateformat=Y-M-D\n')
+        response = client.post('/task/abc12345/estimate', json={'duration': '30min'})
+        assert response.status_code == 400
+        assert mock_run.call_count == 1
+
+    @patch('app.subprocess.run')
+    def test_invalid_duration_returns_400_without_firing_modify(self, mock_run, client):
+        # ON-102: fails loudly on unparseable input rather than silently
+        # writing something wrong.
+        mock_run.return_value = mock_result(stdout='uda.estimate.type=duration\n')
+        response = client.post('/task/abc12345/estimate', json={'duration': '2weeks'})
+        assert response.status_code == 400
+        assert mock_run.call_count == 1
+
+    @patch('app.subprocess.run')
+    def test_subprocess_failure_returns_500(self, mock_run, client):
+        mock_run.side_effect = [
+            mock_result(stdout='uda.estimate.type=duration\n'),
+            mock_result(returncode=1, stderr='error'),
+        ]
+        response = client.post('/task/abc12345/estimate', json={'duration': '30min'})
         assert response.status_code == 500
 
 

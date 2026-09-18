@@ -152,6 +152,38 @@ def get_completed_window_seconds():
         raise DurationParseError(f"ONETASK_COMPLETED_WINDOW={raw!r}: {e}") from e
     return seconds, seconds > 0
 
+# Built-in quick-estimate presets used when ONETASK_ESTIMATE_BUTTONS is unset (ON-106).
+DEFAULT_ESTIMATE_BUTTON_DURATIONS = ['15min', '30min', '1h']
+
+def get_estimate_button_presets():
+    """[{'duration', 'label', 'seconds'}, ...] for the quick-estimate preset
+    buttons (ON-106). Reads ONETASK_ESTIMATE_BUTTONS (comma-separated
+    durations); unset/empty falls back to DEFAULT_ESTIMATE_BUTTON_DURATIONS.
+
+    Each value is parsed with the shared duration parser and fails loudly
+    (ON-102) on anything unparseable — this is admin config, same fail-loud
+    contract as ONETASK_DEFAULT_DURATION/ONETASK_COMPLETED_WINDOW, so a
+    typo'd preset surfaces as a clear error rather than a silently-wrong
+    or silently-missing button.
+
+    'duration' is the original configured string, echoed back to
+    /task/<id>/estimate when a preset is tapped so the write path has a
+    single, already-battle-tested parse point; 'label' is a short
+    human-readable string for the button face; 'seconds' is exposed for
+    the frontend to update its own local countdown state without a
+    round-trip after a successful save.
+    """
+    raw = os.environ.get('ONETASK_ESTIMATE_BUTTONS', '').strip()
+    durations = [v.strip() for v in raw.split(',') if v.strip()] if raw else list(DEFAULT_ESTIMATE_BUTTON_DURATIONS)
+    presets = []
+    for duration in durations:
+        try:
+            seconds = convert_taskwarrior_estimate_to_seconds(duration)
+        except DurationParseError as e:
+            raise DurationParseError(f"ONETASK_ESTIMATE_BUTTONS={raw!r}: invalid preset {duration!r}: {e}") from e
+        presets.append({'duration': duration, 'label': format_estimate_display(seconds) or '0m', 'seconds': seconds})
+    return presets
+
 def get_completed_and_deleted_tasks(window_seconds):
     """Tasks with `end` within the last window_seconds, both completed AND
     deleted (ON-98) — a stateless query against what TaskWarrior already
@@ -468,6 +500,7 @@ def show_list():
         priority_values = get_priority_values(config)
         url_configured = url_uda_defined(config)
         default_duration_seconds, default_duration_configured = get_default_duration_seconds()
+        estimate_buttons = get_estimate_button_presets()
 
         # ON-69/A5: an unknown report (typo, or a custom report a stock
         # install doesn't have) falls back to 'next' with a clear notice,
@@ -496,6 +529,7 @@ def show_list():
         task_urls = [task["task_url"] for task in tasks]
         remaining_seconds = [task["total_seconds"] for task in tasks]
         estimate_is_default = [task["estimate_is_default"] for task in tasks]
+        estimate_displays = [format_estimate_display(task["total_seconds"]) for task in tasks]
         short_ids = [task["short_id"] for task in tasks]
         task_annotations = [task["annotations"] for task in tasks]
         task_due_dates = [task["due_date"] for task in tasks]
@@ -515,6 +549,9 @@ def show_list():
                              task_urls=task_urls,
                              remaining_seconds=remaining_seconds,
                              estimate_is_default=estimate_is_default,
+                             estimate_displays=estimate_displays,
+                             estimate_configured=estimate_configured,
+                             estimate_buttons=estimate_buttons,
                              priority_values=priority_values,
                              url_configured=url_configured,
                              report_invalid=report_invalid,
@@ -1031,6 +1068,40 @@ def remove_task_url(task_id):
         if result.returncode != 0:
             return jsonify({'error': f'TaskWarrior modify failed: {result.stderr}', 'status': 'error'}), 500
         return jsonify({'status': 'success'})
+    except Exception as e:
+        return jsonify({'error': str(e), 'status': 'error'}), 500
+
+@app.route('/task/<task_id>/estimate', methods=['POST'])
+def set_task_estimate(task_id):
+    """Set a task's estimate (ON-106) — used by both the quick-estimate
+    preset buttons and the 'Other' manual-entry field, which both submit
+    the same raw duration string here rather than pre-converting client-side.
+
+    Written to TaskWarrior as PT<seconds>S, NEVER a bare short unit like
+    the submitted string might use (e.g. '30m'): confirmed empirically that
+    TaskWarrior's own CLI duration grammar treats a bare 'm' suffix as
+    MONTHS, not minutes ('estimate:30m' stores as P900D — 900 days, i.e. 30
+    months). PT<seconds>S is unambiguous and sidesteps that entirely; this
+    is the same gotcha the README's Setup section already warns about for
+    manual `task modify estimate:...` use.
+    """
+    try:
+        duration = (request.json.get('duration') or '').strip()
+        if not duration:
+            return jsonify({'error': 'Duration required', 'status': 'error'}), 400
+        # ON-66/A2: on stock TaskWarrior `estimate` isn't a known attribute,
+        # so `modify estimate:...` would be rejected — check first rather
+        # than let that raw TaskWarrior error surface to the user.
+        if not estimate_uda_defined(get_resolved_config()):
+            return jsonify({'error': 'Estimate feature not available (estimate UDA not configured)', 'status': 'error'}), 400
+        try:
+            seconds = convert_taskwarrior_estimate_to_seconds(duration)
+        except DurationParseError as e:
+            return jsonify({'error': f'Invalid duration: {e}', 'status': 'error'}), 400
+        result = run_task_command([str(task_id), 'modify', f'estimate:PT{seconds}S'], hooks=True)
+        if result.returncode != 0:
+            return jsonify({'error': f'TaskWarrior modify failed: {result.stderr}', 'status': 'error'}), 500
+        return jsonify({'status': 'success', 'seconds': seconds})
     except Exception as e:
         return jsonify({'error': str(e), 'status': 'error'}), 500
 

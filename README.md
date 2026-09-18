@@ -17,9 +17,10 @@ OneTask is a personal, single-user tool shared in case it's useful to you. See [
 - **Report Support**: Works with any configured TaskWarrior report — built-ins like `next` and `ready` work out of the box; a personal report like `focus` needs to be defined first (see [Optional customizations](#optional-customizations))
 - **Inline Editing**: Edit a task's title (`t`) and priority directly in the task panel, with the same immediate-save priority control (click a value, no separate Save step) on desktop and mobile; priority can be cleared entirely, not just changed
 - **Notes Management**: Add, view, and delete task annotations with configurable sort order (newest/oldest first); new-note form repositions to match sort order
-- **Tag Management**: Add and remove tags directly — the add field accepts several at once (`work, home +errands`), comma/space/`+` delimited
-- **URL Management**: Add or edit a task's URL link directly
-- **Keyboard Shortcuts**: `a` to open the info panel and focus the new note field; `t` to edit the title; `s` to jump between the timer and the List view; `z` to postpone the due date one day past today or its current due date; Cmd+Enter to save; standard nav shortcuts (p/n/d/space/i/l)
+- **Tag Management**: Add and remove tags directly — the add field accepts several at once (`work, home +errands`), comma/space/`+` delimited; a stray `-` in an entry converts to `_` (`work-project` → `work_project`) rather than being dropped
+- **URL Management**: Add or edit a task's URL link directly; Enter saves
+- **Quick Estimates**: Three configurable preset buttons plus an "Other" manual-entry field set a task's estimate in one tap (see [Configuration](#configuration)'s `ONETASK_ESTIMATE_BUTTONS`); hidden when the `estimate` UDA isn't configured
+- **Keyboard Shortcuts**: `a` to open the info panel and focus the new note field; `=`/`+` to open it and focus the tag field; `t` to edit the title; `s` to jump between the timer and the List view; `z` to postpone the due date one day past today or its current due date; Cmd+Enter to save; standard nav shortcuts (p/n/d/space/i/l)
 - **Mobile / Touch Support**: The timer, details panel, and List view adapt to phone-sized screens (portrait and landscape) — thumb-sized controls, a swipe-to-dismiss Details bottom sheet, tap-to-expand notes, and a touch-friendly priority picker. Fully additive: desktop behavior and layout are unchanged
 - **Click-to-copy**: Task IDs, note text, and the List view's stats summary all copy to the clipboard on click/tap
 - **Localhost by default**: Binds to `127.0.0.1` so a fresh install is reachable only from the machine it runs on. LAN access is opt-in and requires a password (see [Configuration](#configuration))
@@ -125,6 +126,7 @@ OneTask is configured through environment variables.
 | `ONETASK_DEBUG` | _(off)_ | Enables Flask's debug mode/reloader. **Only takes effect when bound to localhost** — if set while bound beyond localhost, it is force-disabled with a notice, since the debugger allows remote code execution |
 | `ONETASK_DEFAULT_DURATION` | `25min` | Timer length used for a task with no `estimate` value (see [Time Estimate Formats](#time-estimate-formats) for accepted formats). Set to `0` to start counting up from 0:00 immediately instead of counting down first. Missing/unset falls back to the 25-minute built-in default; a value that's set but unparseable fails loudly (a clear error on page load) rather than silently falling back |
 | `ONETASK_COMPLETED_WINDOW` | _(unset — section hidden)_ | Shows a "Completed or deleted" section at the bottom of the list, listing tasks whose `end` timestamp falls within this window (e.g. `2hours`, `7days` — same duration formats as `ONETASK_DEFAULT_DURATION`), with inline Uncomplete/Restore. `0` or unset both hide the section; a value that's set but unparseable fails loudly instead of silently hiding it |
+| `ONETASK_ESTIMATE_BUTTONS` | `15min,30min,1h` | Three comma-separated durations for the quick-estimate preset buttons in the Estimate section of the info panel / Details sheet (see [Time Estimate Formats](#time-estimate-formats) for accepted formats). An "Other" button alongside them accepts any duration manually. Missing/unset uses the default three; a value that's set but unparseable fails loudly rather than silently dropping or mis-showing a preset. Hidden entirely (like the rest of the Estimate section) when the `estimate` UDA isn't configured |
 
 ### Enabling access from your phone / other devices
 
@@ -315,6 +317,14 @@ Sets a task's priority. Body: `{"priority": "H"}` (or whatever value from your c
 
 ### DELETE /task/\<id\>/priority
 Clears a task's priority entirely.
+
+### POST /task/\<id\>/estimate
+Sets a task's time estimate. Body: `{"duration": "45m"}` (see [Time Estimate Formats](#time-estimate-formats) for accepted formats) — used by both the quick-estimate preset buttons and the "Other" manual-entry field in the info panel. Rejected with a 400 if the duration doesn't parse. Written internally as an ISO 8601 seconds value, never a bare short unit, since TaskWarrior's own CLI grammar treats a bare `m` suffix as *months* (see [Setup](#setup)'s `estimate` note) — this endpoint sidesteps that regardless of how the duration was phrased.
+
+**Response:**
+```json
+{"status": "success", "seconds": 1800}
+```
 
 ### GET /task/\<id\>/url
 Returns the URL stored on a task.
