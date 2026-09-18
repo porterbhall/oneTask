@@ -9,19 +9,17 @@ OneTask is a personal, single-user tool shared in case it's useful to you. See [
 ## Features
 
 - **Timer Interface**: Visual countdown timer with click-to-pause functionality
-- **TaskWarrior Integration**: Uses TaskWarrior's native report system, respecting all `.taskrc` configurations
 - **Task Navigation**: Navigate through tasks with Previous/Next buttons, or jump straight to one from the full List view
 - **Task Identifiers**: Clickable 8-character task IDs for easy terminal lookup
 - **Combined List + Stats View**: The List screen shows pending count, completed-today, and total time estimate as a header above the full task list
-- **Visual Indicators**: Red background for overdue tasks
 - **Auto-Scrolling Info Panel** (desktop): Opening the info panel (`i`) smooth-scrolls the page to bring as much of it into view as possible; closing it scrolls back to the top. No effect on mobile, where the panel is already a bottom sheet
 - **Task Completion**: Mark tasks complete/incomplete directly from the interface
 - **Report Support**: Works with any configured TaskWarrior report — built-ins like `next` and `ready` work out of the box; a personal report like `focus` needs to be defined first (see [Optional customizations](#optional-customizations))
-- **Inline Editing**: Edit a task's title (`T`) and priority directly in the task panel, with the same immediate-save priority control (click a value, no separate Save step) on desktop and mobile; priority can be cleared entirely, not just changed
+- **Inline Editing**: Edit a task's title (`t`) and priority directly in the task panel, with the same immediate-save priority control (click a value, no separate Save step) on desktop and mobile; priority can be cleared entirely, not just changed
 - **Notes Management**: Add, view, and delete task annotations with configurable sort order (newest/oldest first); new-note form repositions to match sort order
-- **Tag Management**: Add and remove tags directly in the task panel without using the TUI — the add field accepts several at once (`work, home +errands`), comma/space/`+` delimited
-- **URL Management**: Add or edit a task's URL link directly in the task panel without using the TUI
-- **Keyboard Shortcuts**: `a` to open the info panel and focus the new note field; `T` to edit the title; `S` to jump between the timer and the List view; `z` to postpone the due date one day past today or its current due date; Cmd+Enter to save; standard nav shortcuts (p/n/d/space/i/l)
+- **Tag Management**: Add and remove tags directly — the add field accepts several at once (`work, home +errands`), comma/space/`+` delimited
+- **URL Management**: Add or edit a task's URL link directly
+- **Keyboard Shortcuts**: `a` to open the info panel and focus the new note field; `t` to edit the title; `s` to jump between the timer and the List view; `z` to postpone the due date one day past today or its current due date; Cmd+Enter to save; standard nav shortcuts (p/n/d/space/i/l)
 - **Mobile / Touch Support**: The timer, details panel, and List view adapt to phone-sized screens (portrait and landscape) — thumb-sized controls, a swipe-to-dismiss Details bottom sheet, tap-to-expand notes, and a touch-friendly priority picker. Fully additive: desktop behavior and layout are unchanged
 - **Click-to-copy**: Task IDs, note text, and the List view's stats summary all copy to the clipboard on click/tap
 - **Localhost by default**: Binds to `127.0.0.1` so a fresh install is reachable only from the machine it runs on. LAN access is opt-in and requires a password (see [Configuration](#configuration))
@@ -109,7 +107,7 @@ See [Optional customizations](#optional-customizations) below for further tuning
    - Click the timer to pause/resume
    - Use Previous/Next buttons to navigate tasks
    - Click the task ID to copy it to clipboard for terminal use
-   - Click "List" (upper left) to browse the full task list along with pending/completed-today/estimate-remaining stats; "Return to oneTask" (also upper left, on the List view) or the `S` key jumps back
+   - Click "List" (upper left) to browse the full task list along with pending/completed-today/estimate-remaining stats; "Return to oneTask" (also upper left, on the List view) or the `s` key jumps back
    - Click "Complete Task" to mark tasks as done
    - Click "Uncomplete Task" to reopen completed tasks
    - In the due-date section, click "Postpone" (or press `z`) to snooze a task's due date one day past today or its current due date, whichever is later — never leaves it in the past
