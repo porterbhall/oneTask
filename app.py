@@ -108,17 +108,19 @@ def get_default_duration_seconds():
     instead of being stuck with DEFAULT_ESTIMATE_SECONDS, including 0 to
     start counting up immediately rather than counting down first.
 
-    Requires at least one digit to count as 'configured': the shared
-    duration parser silently returns 0 for pure garbage (no digits at
-    all), which would otherwise be indistinguishable from a deliberate
-    0=count-up value. Unset or unparseable both fall back to the
-    built-in default, unconfigured, so the caller still shows the
-    'set an estimate' notice rather than pretending this was intentional.
+    Only a genuinely unset/empty value is treated as 'not configured' and
+    falls back to the built-in default. Anything else goes through the
+    shared duration parser, which now fails loudly (ON-102) on input it
+    can't parse — e.g. a typo'd unit — rather than silently coercing it
+    to 0 and pretending nothing was configured.
     """
     raw = os.environ.get('ONETASK_DEFAULT_DURATION', '').strip()
-    if not raw or not any(c.isdigit() for c in raw):
+    if not raw:
         return DEFAULT_ESTIMATE_SECONDS, False
-    return convert_taskwarrior_estimate_to_seconds(raw), True
+    try:
+        return convert_taskwarrior_estimate_to_seconds(raw), True
+    except DurationParseError as e:
+        raise DurationParseError(f"ONETASK_DEFAULT_DURATION={raw!r}: {e}") from e
 
 def get_completed_window_seconds():
     """(seconds, enabled) for the optional ONETASK_COMPLETED_WINDOW env var
@@ -126,13 +128,17 @@ def get_completed_window_seconds():
     section (tasks with an `end` timestamp within the last N). Reuses the
     same TaskWarrior-style duration parser as ONETASK_DEFAULT_DURATION.
 
-    Unlike that one, 0 is NOT a meaningful window — an explicit 0, an unset
-    value, and unparseable garbage all mean the same thing here: hide the
-    section (opt-in, default off, per the epic's config decision)."""
+    Unlike that one, 0 is NOT a meaningful window — an explicit 0 means
+    hide the section (opt-in, default off, per the epic's config
+    decision), same as leaving it unset. Anything else that fails to
+    parse now raises (ON-102) instead of silently hiding the section."""
     raw = os.environ.get('ONETASK_COMPLETED_WINDOW', '').strip()
-    if not raw or not any(c.isdigit() for c in raw):
+    if not raw:
         return 0, False
-    seconds = convert_taskwarrior_estimate_to_seconds(raw)
+    try:
+        seconds = convert_taskwarrior_estimate_to_seconds(raw)
+    except DurationParseError as e:
+        raise DurationParseError(f"ONETASK_COMPLETED_WINDOW={raw!r}: {e}") from e
     return seconds, seconds > 0
 
 def get_completed_and_deleted_tasks(window_seconds):
@@ -232,9 +238,23 @@ def format_task_for_display(task, estimate_configured=True, priority_values=None
     # configured but left unset (or unparseable) on a specific task — same
     # dead-timer symptom, different cause — so treat a 0-second result the
     # same way (ON-84).
+    #
+    # Deliberately NOT letting DurationParseError (ON-102) propagate here:
+    # this runs once per task on every list/page render, so one task with a
+    # bad estimate (hand-edited outside oneTask, or a unit oneTask doesn't
+    # support) would 500 the entire list instead of just falling back for
+    # that task. Fail-loud is for admin config (ONETASK_DEFAULT_DURATION /
+    # ONETASK_COMPLETED_WINDOW), not per-task TaskWarrior data.
     if estimate_configured:
         estimate = task.get('estimate', '')
-        total_seconds = convert_taskwarrior_estimate_to_seconds(estimate)
+        if estimate:
+            try:
+                total_seconds = convert_taskwarrior_estimate_to_seconds(estimate)
+            except DurationParseError as e:
+                print(f"DEBUG: Unparseable estimate {estimate!r} on task {task.get('uuid', '?')}: {e}")
+                total_seconds = 0
+        else:
+            total_seconds = 0
     else:
         estimate = ''
         total_seconds = 0
@@ -279,24 +299,56 @@ def format_task_for_display(task, estimate_configured=True, priority_values=None
 
     return formatted_task
 
+class DurationParseError(ValueError):
+    """Raised when a TaskWarrior-style duration string can't be parsed
+    (ON-102). Previously the parser silently returned 0 for anything it
+    didn't recognize, which was indistinguishable from a deliberately-
+    configured 0 (see ON-92) and masked real typos/unsupported units."""
+
+# The only units this parser recognizes. Matched by first letter, so both
+# short ('h') and long ('hours') forms work — see the loop below.
+_VALID_DURATION_UNITS = {'h', 'm', 's', 'd'}
+
 def convert_taskwarrior_estimate_to_seconds(estimate):
-    """Convert TaskWarrior estimate format to seconds"""
+    """Convert a TaskWarrior-style duration string to seconds.
+
+    Supported units are h(ours)/m(inutes)/s(econds)/d(ays) — only the
+    first letter of a unit word is checked, so 'h', 'hour', and 'hours'
+    all work identically, as do '5mins' and '7days'. Segments combine
+    ('1h30m') and may be whitespace-separated ('1h 30m'); a bare number
+    with no unit at all is treated as minutes. ISO 8601-style strings
+    like 'PT1H30M' also parse correctly, since the leading P/T letters
+    have no pending digits and are ignored the same way 'hours' ignores
+    its trailing letters — not real ISO 8601 support (no weeks, no
+    fractional values), just a byproduct of the same letter-skipping.
+
+    Raises DurationParseError — instead of silently returning 0 (ON-102)
+    — for: empty input; a unit letter outside h/m/s/d (e.g. '2weeks',
+    '1w'); a decimal point or other punctuation (e.g. '1.5h', which used
+    to silently mis-parse as 15h by dropping the '.'); or input with no
+    digits at all. A deliberate '0' or '0h' remains valid and returns 0,
+    per ON-92's digit-guard precedent.
+    """
     if not estimate:
-        return 0
-    
+        raise DurationParseError("empty duration string")
+
     total_seconds = 0
-    estimate = estimate.lower()
-    
-    # Handle TaskWarrior format: '5mins', '2h', '1h30m', '7days'. 'd' was
-    # added for ON-98 (ONETASK_COMPLETED_WINDOW's own examples use '7days'
-    # — discovered missing when that literal example silently parsed to 0).
+    lowered = estimate.lower()
+    saw_digit = False
+
     current_number = ''
-    for char in estimate:
+    for char in lowered:
         if char.isdigit():
+            saw_digit = True
             current_number += char
         elif char.isalpha():
             if current_number:
                 num = int(current_number)
+                if char not in _VALID_DURATION_UNITS:
+                    raise DurationParseError(
+                        f"unrecognized duration unit {char!r} in {estimate!r} "
+                        f"(supported units: h, m, s, d)"
+                    )
                 if char == 'h':
                     total_seconds += num * 3600
                 elif char == 'm':
@@ -306,11 +358,16 @@ def convert_taskwarrior_estimate_to_seconds(estimate):
                 elif char == 'd':
                     total_seconds += num * 86400
                 current_number = ''
-    
-    # Add any remaining number as minutes if no unit specified
+        elif not char.isspace():
+            raise DurationParseError(f"unexpected character {char!r} in {estimate!r}")
+
+    # A trailing, unit-less number is treated as minutes.
     if current_number:
         total_seconds += int(current_number) * 60
-    
+
+    if not saw_digit:
+        raise DurationParseError(f"no numeric duration found in {estimate!r}")
+
     return total_seconds
 
 def format_due_date_display(due_date):

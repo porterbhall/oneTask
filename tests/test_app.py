@@ -7,6 +7,7 @@ import pytest
 
 from app import (
     RC_OVERRIDES,
+    DurationParseError,
     app,
     compute_postponed_due,
     convert_taskwarrior_estimate_to_seconds,
@@ -79,10 +80,34 @@ SAMPLE_TASK = {
 
 class TestConvertEstimateToSeconds:
     def test_empty_string(self):
-        assert convert_taskwarrior_estimate_to_seconds('') == 0
+        # ON-102: fails loudly instead of silently returning 0.
+        with pytest.raises(DurationParseError):
+            convert_taskwarrior_estimate_to_seconds('')
 
     def test_none(self):
-        assert convert_taskwarrior_estimate_to_seconds(None) == 0
+        with pytest.raises(DurationParseError):
+            convert_taskwarrior_estimate_to_seconds(None)
+
+    def test_unrecognized_unit_raises(self):
+        # ON-102: '2weeks'/'1w' used to silently parse to 0.
+        with pytest.raises(DurationParseError):
+            convert_taskwarrior_estimate_to_seconds('2weeks')
+        with pytest.raises(DurationParseError):
+            convert_taskwarrior_estimate_to_seconds('1w')
+
+    def test_decimal_value_raises(self):
+        # ON-102: '1.5h' used to silently drop the '.' and mis-parse as 15h.
+        with pytest.raises(DurationParseError):
+            convert_taskwarrior_estimate_to_seconds('1.5h')
+
+    def test_no_digits_at_all_raises(self):
+        with pytest.raises(DurationParseError):
+            convert_taskwarrior_estimate_to_seconds('banana')
+
+    def test_zero_is_valid_not_an_error(self):
+        # A deliberate 0 stays valid and distinct from unparseable input.
+        assert convert_taskwarrior_estimate_to_seconds('0') == 0
+        assert convert_taskwarrior_estimate_to_seconds('0h') == 0
 
     def test_minutes(self):
         assert convert_taskwarrior_estimate_to_seconds('30m') == 1800
@@ -325,14 +350,19 @@ class TestGetDefaultDurationSeconds:
         assert seconds == 0
         assert configured is True
 
-    def test_garbage_with_no_digits_falls_back_unconfigured(self, monkeypatch):
-        # Must not be mistaken for a deliberate 0=count-up value — the
-        # shared parser would otherwise silently resolve "banana" to 0.
-        from app import DEFAULT_ESTIMATE_SECONDS, get_default_duration_seconds
+    def test_garbage_with_no_digits_raises(self, monkeypatch):
+        # ON-102: an unparseable value now fails loudly instead of being
+        # silently treated the same as "unconfigured".
+        from app import get_default_duration_seconds
         monkeypatch.setenv('ONETASK_DEFAULT_DURATION', 'banana')
-        seconds, configured = get_default_duration_seconds()
-        assert seconds == DEFAULT_ESTIMATE_SECONDS
-        assert configured is False
+        with pytest.raises(DurationParseError, match='ONETASK_DEFAULT_DURATION'):
+            get_default_duration_seconds()
+
+    def test_unrecognized_unit_raises(self, monkeypatch):
+        from app import get_default_duration_seconds
+        monkeypatch.setenv('ONETASK_DEFAULT_DURATION', '2weeks')
+        with pytest.raises(DurationParseError, match='ONETASK_DEFAULT_DURATION'):
+            get_default_duration_seconds()
 
     def test_blank_falls_back_unconfigured(self, monkeypatch):
         from app import DEFAULT_ESTIMATE_SECONDS, get_default_duration_seconds
@@ -377,12 +407,13 @@ class TestGetCompletedWindowSeconds:
         assert seconds == 7200
         assert enabled is True
 
-    def test_garbage_with_no_digits_is_disabled(self, monkeypatch):
+    def test_garbage_with_no_digits_raises(self, monkeypatch):
+        # ON-102: an unparseable value now fails loudly instead of
+        # silently hiding the section.
         from app import get_completed_window_seconds
         monkeypatch.setenv('ONETASK_COMPLETED_WINDOW', 'banana')
-        seconds, enabled = get_completed_window_seconds()
-        assert seconds == 0
-        assert enabled is False
+        with pytest.raises(DurationParseError, match='ONETASK_COMPLETED_WINDOW'):
+            get_completed_window_seconds()
 
 
 # ---------------------------------------------------------------------------

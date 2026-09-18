@@ -123,8 +123,8 @@ OneTask is configured through environment variables.
 | `ONETASK_HOST` | `127.0.0.1` | Interface to bind to. Set to `0.0.0.0` to enable LAN access (requires `ONETASK_PASSWORD`) |
 | `ONETASK_PASSWORD` | _(unset)_ | Password required to access the app. **Mandatory** for LAN access |
 | `ONETASK_DEBUG` | _(off)_ | Enables Flask's debug mode/reloader. **Only takes effect when bound to localhost** — if set while bound beyond localhost, it is force-disabled with a notice, since the debugger allows remote code execution |
-| `ONETASK_DEFAULT_DURATION` | `25min` | Timer length used for a task with no `estimate` value (see [Time Estimate Formats](#time-estimate-formats) for accepted formats). Set to `0` to start counting up from 0:00 immediately instead of counting down first. Missing or unparseable values fall back to the 25-minute built-in default |
-| `ONETASK_COMPLETED_WINDOW` | _(unset — section hidden)_ | Shows a "Completed or deleted" section at the bottom of the list, listing tasks whose `end` timestamp falls within this window (e.g. `2hours`, `7days` — same duration formats as `ONETASK_DEFAULT_DURATION`), with inline Uncomplete/Restore. `0`, unset, or unparseable all hide the section |
+| `ONETASK_DEFAULT_DURATION` | `25min` | Timer length used for a task with no `estimate` value (see [Time Estimate Formats](#time-estimate-formats) for accepted formats). Set to `0` to start counting up from 0:00 immediately instead of counting down first. Missing/unset falls back to the 25-minute built-in default; a value that's set but unparseable fails loudly (a clear error on page load) rather than silently falling back |
+| `ONETASK_COMPLETED_WINDOW` | _(unset — section hidden)_ | Shows a "Completed or deleted" section at the bottom of the list, listing tasks whose `end` timestamp falls within this window (e.g. `2hours`, `7days` — same duration formats as `ONETASK_DEFAULT_DURATION`), with inline Uncomplete/Restore. `0` or unset both hide the section; a value that's set but unparseable fails loudly instead of silently hiding it |
 
 ### Enabling access from your phone / other devices
 
@@ -207,10 +207,17 @@ The application works with standard TaskWarrior tasks and supports:
 
 ## Time Estimate Formats
 
-OneTask parses time estimates in multiple formats:
-- ISO 8601 duration: `PT1H30M`
-- Human readable: `1h 30m`, `45m`, `2h`
-- Numeric with units: `90m`, `1.5h`, `30s`, `7d`
+This is the authoritative, complete list (ON-102) — anything outside it is rejected rather than silently misinterpreted.
+
+**Supported units:** `h` (hours), `m` (minutes), `s` (seconds), `d` (days). Only the first letter is actually checked, so short and long forms both work: `h`/`hour`/`hours`, `m`/`min`/`mins`/`minute`/`minutes`, `s`/`sec`/`secs`, `d`/`day`/`days`.
+
+- Single unit: `45m`, `2h`, `30s`, `7d`, `7days`
+- Combined units: `1h30m`, `1h 30m` (whitespace between segments is fine)
+- Bare number with no unit at all: treated as minutes (e.g. `25` = 25 minutes)
+- ISO 8601-style strings such as `PT1H30M` or `P1DT12H` also parse correctly, as a side effect of how the parser skips letters it doesn't need (`P`/`T` have no number in front of them) — not full ISO 8601 support, so `P1W` (weeks) and fractional values are **not** supported (see below)
+- `0` or `0h` etc. are valid and mean zero, distinct from leaving the value unset
+
+**Not supported — fails loudly, not silently:** decimal values (`1.5h`), weeks (`2weeks`, `1w`), and any other unit letter. Unlike earlier versions, an unparseable value in `ONETASK_DEFAULT_DURATION` or `ONETASK_COMPLETED_WINDOW` now surfaces a clear error instead of quietly behaving as if unset.
 
 ## API Endpoints
 
