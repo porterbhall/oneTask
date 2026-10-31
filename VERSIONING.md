@@ -53,7 +53,7 @@ A release is considered ready when ALL of the following criteria are met:
 - [ ] No critical security vulnerabilities in dependencies
 - [ ] Code follows project conventions and style guidelines
 - [ ] No TODO comments remain for release-blocking items
-- [ ] Security validation checklist completed (`security-checklist.md`)
+- [ ] Security validation checklist completed (claims in `SECURITY.md` checked against the code)
 - [ ] GitHub security scanning alerts resolved
 
 ### Functionality
@@ -94,7 +94,7 @@ pip check
 pip list --outdated
 
 # Run security validation
-# Complete security-checklist.md manually
+# Check the claims in SECURITY.md against the code manually
 
 # Check GitHub security alerts
 gh api repos/porterbhall/oneTask/dependabot/alerts
@@ -148,7 +148,7 @@ rm -rf test_env
 ### 6. Security Validation
 ```bash
 # Review and complete security checklist
-open security-checklist.md
+open SECURITY.md
 
 # Check for security alerts
 gh api repos/porterbhall/oneTask/dependabot/alerts --jq '.[] | select(.state=="open")'
