@@ -1006,6 +1006,19 @@ def add_task_annotation(task_id):
         print(f"DEBUG: {error_msg}")
         return jsonify({'error': error_msg, 'status': 'error'}), 500
 
+@app.route('/task/<task_id>/annotations', methods=['DELETE'])
+def delete_task_annotation_by_body(task_id):
+    """Delete an annotation named in the JSON body (ON-114).
+
+    The page uses this route. Note text in a URL path can't carry a leading
+    slash, or a slash and a line break together, because those don't route.
+    """
+    annotation_text = request.json.get('annotation')
+    if not annotation_text:
+        return jsonify({'error': 'No note text provided', 'status': 'error'}), 400
+    return remove_task_annotation(task_id, annotation_text)
+
+
 @app.route('/task/<task_id>/annotations/<annotation_text>', methods=['DELETE'])
 def delete_task_annotation(task_id, annotation_text):
     """Delete specific annotation from a task by text"""

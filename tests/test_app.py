@@ -1321,6 +1321,34 @@ def note_export(*texts):
     return mock_result(stdout=json.dumps([{**SAMPLE_TASK, 'annotations': notes}]))
 
 
+class TestDeleteAnnotationByBody:
+    @pytest.mark.parametrize('text', [
+        'a/b', 'see https://example.com/x', 'trailing/', '/leading', '//', 'one\ntwo/x', 'x\ty/z',
+        'x?y=1#z', '100% sure', '%2F literal', 'L' * 2768 + '/end',
+    ])
+    @patch('app.subprocess.run')
+    def test_note_text_that_a_path_cannot_carry(self, mock_run, client, text):
+        mock_run.side_effect = [note_export('keep', text), mock_result(), note_export('keep')]
+        response = client.delete('/task/abc12345/annotations', json={'annotation': text})
+        assert response.status_code == 200
+        call = mock_run.call_args_list[1]
+        assert call[0][0] == write_task_args('import', '-')
+        assert [n['description'] for n in json.loads(call[1]['input'])['annotations']] == ['keep']
+
+    @patch('app.subprocess.run')
+    def test_missing_text_returns_400(self, mock_run, client):
+        response = client.delete('/task/abc12345/annotations', json={})
+        assert response.status_code == 400
+        mock_run.assert_not_called()
+
+    @patch('app.subprocess.run')
+    def test_no_match_returns_404(self, mock_run, client):
+        mock_run.return_value = note_export('other')
+        response = client.delete('/task/abc12345/annotations', json={'annotation': 'a/b'})
+        assert response.status_code == 404
+        assert mock_run.call_count == 1
+
+
 class TestDeleteAnnotation:
     @patch('app.subprocess.run')
     def test_removes_note_through_import(self, mock_run, client):
@@ -2117,6 +2145,7 @@ INPUT_INVENTORY = {
     ('/uncomplete_task', 'POST'): ['json:task_id'],
     ('/task/<task_id>/annotations', 'GET'): ['path:task_id'],
     ('/task/<task_id>/annotations', 'POST'): ['path:task_id', 'json:annotation'],
+    ('/task/<task_id>/annotations', 'DELETE'): ['path:task_id', 'json:annotation'],
     ('/task/<task_id>/annotations/<annotation_text>', 'DELETE'): ['path:task_id', 'path:annotation_text'],
     ('/task/<task_id>/delete', 'POST'): ['path:task_id'],
     ('/task/<task_id>/description', 'POST'): ['path:task_id', 'json:description'],

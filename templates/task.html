@@ -965,11 +965,12 @@ function updateCountdown() {
         
         const taskId = task_id[currentTaskIndex];
         
-        // URL encode the annotation text for the API call
-        const encodedText = encodeURIComponent(annotationText);
-        
-        fetch(`/task/${taskId}/annotations/${encodedText}`, {
-            method: 'DELETE'
+        // ON-114: sent in the body, since note text in a URL path can't carry
+        // a leading slash, or a slash and a line break together
+        fetch(`/task/${taskId}/annotations`, {
+            method: 'DELETE',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({annotation: annotationText})
         })
         .then(response => response.json())
         .then(data => {

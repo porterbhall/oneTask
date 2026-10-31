@@ -293,8 +293,11 @@ Returns all annotations (notes) for a task.
 ### POST /task/\<id\>/annotations
 Adds an annotation to a task. Body: `{"annotation": "text"}`.
 
+### DELETE /task/\<id\>/annotations
+Removes a specific annotation. Body: `{"annotation": "text"}`, which must match the whole note. Returns a 404 if no note matches.
+
 ### DELETE /task/\<id\>/annotations/\<text\>
-Removes a specific annotation by its URL-encoded text, which must match the whole note. Returns a 404 if no note matches.
+Removes a specific annotation by its URL-encoded text, which must match the whole note. Returns a 404 if no note matches. Text with a leading slash, or with both a slash and a line break, can't be sent this way; use the body form above.
 
 Every `<id>` above and below must be a task's numeric ID, 8-character UUID prefix, or full UUID, and selects exactly one task; anything else returns a 400.
 
