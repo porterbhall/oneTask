@@ -515,6 +515,20 @@ function updateCountdown() {
                 }
                 openTagAddForm();
                 break;
+            case 'u':
+                // ON-113: opens the URL field for add/edit; 'l' stays the
+                // action of opening the saved link. Skipped when the url UDA
+                // isn't configured (section hidden, ON-68/A4) and for
+                // Cmd/Ctrl+U so the browser's View Source keeps working.
+                if (!urlConfigured || event.metaKey || event.ctrlKey || event.altKey) {
+                    break;
+                }
+                event.preventDefault();
+                if (!taskDetailsVisible) {
+                    toggleTaskDetails();
+                }
+                showUrlForm();
+                break;
             case 't':
                 event.preventDefault();
                 enterTitleEditMode();
