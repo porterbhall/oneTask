@@ -471,7 +471,13 @@ function updateCountdown() {
         if (event.target.tagName === 'TEXTAREA' || event.target.tagName === 'INPUT') {
             return;
         }
-        
+
+        // Leave browser shortcuts alone so e.g. Cmd+D bookmarks the page
+        // without also running the 'd' (complete task) shortcut.
+        if (event.metaKey || event.ctrlKey || event.altKey) {
+            return;
+        }
+
         // Prevent default behavior for space bar to avoid page scrolling
         if (event.code === 'Space') {
             event.preventDefault();
@@ -518,9 +524,8 @@ function updateCountdown() {
             case 'u':
                 // ON-113: opens the URL field for add/edit; 'l' stays the
                 // action of opening the saved link. Skipped when the url UDA
-                // isn't configured (section hidden, ON-68/A4) and for
-                // Cmd/Ctrl+U so the browser's View Source keeps working.
-                if (!urlConfigured || event.metaKey || event.ctrlKey || event.altKey) {
+                // isn't configured (section hidden, ON-68/A4).
+                if (!urlConfigured) {
                     break;
                 }
                 event.preventDefault();
