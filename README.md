@@ -294,9 +294,11 @@ Returns all annotations (notes) for a task.
 Adds an annotation to a task. Body: `{"annotation": "text"}`.
 
 ### DELETE /task/\<id\>/annotations/\<text\>
-Removes a specific annotation by its URL-encoded text.
+Removes a specific annotation by its URL-encoded text, which must match the whole note. Returns a 404 if no note matches.
 
 Every `<id>` above and below must be a task's numeric ID, 8-character UUID prefix, or full UUID, and selects exactly one task; anything else returns a 400.
+
+Control characters in any value return a 400. The one exception is a note, which may contain line breaks and tabs.
 
 ### GET /task/\<id\>/due
 Returns the due date for a task.

@@ -1,11 +1,16 @@
 import json
+import re
 import subprocess
 from datetime import date, datetime, timezone
 from unittest.mock import patch, MagicMock
+from urllib.parse import quote
 
 import pytest
 
 from app import (
+    _VALID_TAG_PATTERN,
+    has_control_characters,
+    parse_task_export,
     is_valid_task_id,
     RC_OVERRIDES,
     DurationParseError,
@@ -1311,26 +1316,63 @@ class TestAddAnnotation:
 # Route tests: DELETE /task/<id>/annotations/<text>
 # ---------------------------------------------------------------------------
 
+def note_export(*texts):
+    notes = [{'entry': '20250101T000000Z', 'description': text} for text in texts]
+    return mock_result(stdout=json.dumps([{**SAMPLE_TASK, 'annotations': notes}]))
+
+
 class TestDeleteAnnotation:
     @patch('app.subprocess.run')
-    def test_happy_path(self, mock_run, client):
-        mock_run.return_value = mock_result(stdout='Denotated.')
+    def test_removes_note_through_import(self, mock_run, client):
+        mock_run.side_effect = [note_export('keep', 'my note'), mock_result(), note_export('keep')]
         response = client.delete('/task/abc12345/annotations/my%20note')
         assert response.status_code == 200
-        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'denotate', '--', 'my note')
+        call = mock_run.call_args_list[1]
+        assert call[0][0] == write_task_args('import', '-')
+        assert [n['description'] for n in json.loads(call[1]['input'])['annotations']] == ['keep']
 
+    @pytest.mark.parametrize('encoded,text', [
+        ('one%0Atwo', 'one\ntwo'), ('one%09two', 'one\ttwo'), ('project%3Azzz', 'project:zzz'),
+        ('url%3Ay%0Aproject%3Az', 'url:y\nproject:z'), ('rc.default.project%3Dx', 'rc.default.project=x'),
+        ('note%20with%20%22quotes%22', 'note with "quotes"'), ('caf%C3%A9', 'caf\u00e9'), ('50%2541', '50%41'),
+    ])
     @patch('app.subprocess.run')
-    def test_special_characters_decoded_correctly(self, mock_run, client):
-        # Annotation text containing double quotes
-        mock_run.return_value = mock_result(stdout='Denotated.')
-        response = client.delete('/task/abc12345/annotations/note%20with%20%22quotes%22')
+    def test_text_never_reaches_arguments(self, mock_run, client, encoded, text):
+        mock_run.side_effect = [note_export(text), mock_result(), note_export()]
+        response = client.delete(f'/task/abc12345/annotations/{encoded}')
         assert response.status_code == 200
-        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'denotate', '--', 'note with "quotes"')
+        assert not any(text in call[0][0] for call in mock_run.call_args_list)
 
     @patch('app.subprocess.run')
-    def test_subprocess_failure_returns_500(self, mock_run, client):
-        mock_run.return_value = mock_result(returncode=1, stderr='No matching annotation')
-        response = client.delete('/task/abc12345/annotations/nonexistent')
+    def test_only_an_exact_match_is_removed(self, mock_run, client):
+        mock_run.return_value = note_export('alpha beta gamma')
+        response = client.delete('/task/abc12345/annotations/beta')
+        assert response.status_code == 404
+        assert mock_run.call_count == 1
+
+    @patch('app.subprocess.run')
+    def test_one_of_two_identical_notes_is_removed(self, mock_run, client):
+        mock_run.side_effect = [note_export('same', 'same'), mock_result(), note_export('same')]
+        response = client.delete('/task/abc12345/annotations/same')
+        assert response.status_code == 200
+        assert len(json.loads(mock_run.call_args_list[1][1]['input'])['annotations']) == 1
+
+    @patch('app.subprocess.run')
+    def test_import_failure_returns_500(self, mock_run, client):
+        mock_run.side_effect = [note_export('note'), mock_result(returncode=4, stderr='veto')]
+        response = client.delete('/task/abc12345/annotations/note')
+        assert response.status_code == 500
+
+    @patch('app.subprocess.run')
+    def test_note_still_present_returns_500(self, mock_run, client):
+        mock_run.side_effect = [note_export('note'), mock_result(), note_export('note')]
+        response = client.delete('/task/abc12345/annotations/note')
+        assert response.status_code == 500
+
+    @patch('app.subprocess.run')
+    def test_export_failure_returns_500(self, mock_run, client):
+        mock_run.return_value = mock_result(returncode=1, stderr='failed')
+        response = client.delete('/task/abc12345/annotations/note')
         assert response.status_code == 500
 
 
@@ -2058,3 +2100,143 @@ class TestCrossOriginWrites:
         mock_run.return_value = mock_result(stdout='[]')
         response = client.get('/tasks/by-tag/work', headers={'Origin': 'http://evil.example'})
         assert response.status_code == 200
+
+
+# ---------------------------------------------------------------------------
+# Control characters and the injection payload matrix (ON-119)
+# ---------------------------------------------------------------------------
+
+# Every input the app reads, by route. Adding a route without an entry here
+# fails test_inventory_covers_every_route, so "every route" stays auditable.
+INPUT_INVENTORY = {
+    ('/', 'GET'): ['query:report', 'query:task'],
+    ('/list', 'GET'): ['query:report', 'query:task'],
+    ('/stats', 'GET'): ['query:report', 'query:task'],
+    ('/capture', 'POST'): ['json:task', 'form:task'],
+    ('/complete_task', 'POST'): ['json:task_id'],
+    ('/uncomplete_task', 'POST'): ['json:task_id'],
+    ('/task/<task_id>/annotations', 'GET'): ['path:task_id'],
+    ('/task/<task_id>/annotations', 'POST'): ['path:task_id', 'json:annotation'],
+    ('/task/<task_id>/annotations/<annotation_text>', 'DELETE'): ['path:task_id', 'path:annotation_text'],
+    ('/task/<task_id>/delete', 'POST'): ['path:task_id'],
+    ('/task/<task_id>/description', 'POST'): ['path:task_id', 'json:description'],
+    ('/task/<task_id>/due', 'GET'): ['path:task_id'],
+    ('/task/<task_id>/due', 'POST'): ['path:task_id', 'json:due_date'],
+    ('/task/<task_id>/due', 'DELETE'): ['path:task_id'],
+    ('/task/<task_id>/estimate', 'POST'): ['path:task_id', 'json:duration'],
+    ('/task/<task_id>/postpone', 'POST'): ['path:task_id'],
+    ('/task/<task_id>/priority', 'POST'): ['path:task_id', 'json:priority'],
+    ('/task/<task_id>/priority', 'DELETE'): ['path:task_id'],
+    ('/task/<task_id>/tags', 'GET'): ['path:task_id'],
+    ('/task/<task_id>/tags', 'POST'): ['path:task_id', 'json:tag'],
+    ('/task/<task_id>/tags/<tag>', 'DELETE'): ['path:task_id', 'path:tag'],
+    ('/task/<task_id>/url', 'GET'): ['path:task_id'],
+    ('/task/<task_id>/url', 'POST'): ['path:task_id', 'json:url'],
+    ('/task/<task_id>/url', 'DELETE'): ['path:task_id'],
+    ('/tasks/by-tag/<tag>', 'GET'): ['path:tag'],
+}
+INVENTORY_INPUTS = [(rule, method, item) for (rule, method), items in INPUT_INVENTORY.items() for item in items]
+NOTE_INPUTS = ('json:annotation', 'path:annotation_text')
+ALWAYS_REFUSED = ['x\ry', 'x\x00y', 'x\x01y', 'x\x0by', 'x\x0cy', 'x\x1fy', 'x\x7fy']
+
+
+def send_inventory_input(client, rule, method, item, value):
+    """Send `value` through one inventory input, with valid values elsewhere."""
+    kind, name = item.split(':')
+    path = rule
+    for param in re.findall(r'<(\w+)>', rule):
+        segment = quote(value, safe='') if kind == 'path' and param == name else (
+            'abc12345' if param == 'task_id' else 'word')
+        path = path.replace(f'<{param}>', segment)
+    if kind == 'query':
+        return client.open(path, method=method, query_string={name: value})
+    if kind == 'form':
+        return client.open(path, method=method, data={name: value})
+    return client.open(path, method=method, json={name: value} if kind == 'json' else None)
+
+
+class TestControlCharacters:
+    def test_inventory_covers_every_route(self):
+        routes = {
+            (rule.rule, method)
+            for rule in app.url_map.iter_rules() if rule.endpoint != 'static'
+            for method in rule.methods - {'HEAD', 'OPTIONS'}
+        }
+        assert routes == set(INPUT_INVENTORY)
+
+    @pytest.mark.parametrize('rule,method,item', INVENTORY_INPUTS)
+    @pytest.mark.parametrize('value', ALWAYS_REFUSED)
+    @patch('app.subprocess.run')
+    def test_refused_on_every_input(self, mock_run, client, rule, method, item, value):
+        response = send_inventory_input(client, rule, method, item, value)
+        assert response.status_code == 400
+        mock_run.assert_not_called()
+
+    @pytest.mark.parametrize('rule,method,item', [i for i in INVENTORY_INPUTS if i[2] not in NOTE_INPUTS])
+    @pytest.mark.parametrize('value', ['x\ny', '\nx', 'x\n', 'x\ty'])
+    @patch('app.subprocess.run')
+    def test_newline_and_tab_refused_outside_notes(self, mock_run, client, rule, method, item, value):
+        response = send_inventory_input(client, rule, method, item, value)
+        assert response.status_code == 400
+        mock_run.assert_not_called()
+
+    @pytest.mark.parametrize('value', ['one\ntwo', 'one\ttwo'])
+    @patch('app.subprocess.run')
+    def test_note_add_keeps_newline_and_tab(self, mock_run, client, value):
+        mock_run.return_value = mock_result()
+        response = client.post('/task/abc12345/annotations', json={'annotation': value})
+        assert response.status_code == 200
+        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'annotate', '--', value)
+
+    @pytest.mark.parametrize('path', [
+        '/task/abc12345/tags/a%0A', '/task/abc12345/tags/a%250A',
+        '/task/abc12345/annotations/a%0Bb', '/task/abc12345/annotations/a%250Bb',
+    ])
+    @patch('app.subprocess.run')
+    def test_double_encoded_paths_refused(self, mock_run, client, path):
+        response = client.delete(path)
+        assert response.status_code == 400
+        mock_run.assert_not_called()
+
+    def test_tag_pattern_refuses_trailing_newline(self):
+        assert _VALID_TAG_PATTERN.match('tag')
+        assert not _VALID_TAG_PATTERN.match('tag\n')
+
+    def test_non_string_values_are_ignored(self):
+        assert not has_control_characters('url', 5)
+
+    def test_unicode_spaces_pass(self):
+        assert not has_control_characters('url', 'x\u2028y\u00a0z')
+
+
+class TestStoredControlCharacters:
+    def test_export_with_raw_control_character_parses(self):
+        assert parse_task_export('[{"description":"a\x0bb"}]') == [{'description': 'a\x0bb'}]
+
+    @pytest.mark.parametrize('path', ['/', '/list'])
+    @patch('app.subprocess.run')
+    def test_pages_load(self, mock_run, client, path):
+        task = json.dumps([SAMPLE_TASK]).replace(SAMPLE_TASK['description'], 'a\x0bb')
+        mock_run.return_value = mock_result(stdout=task)
+        assert client.get(path).status_code == 200
+
+
+class TestInjectionPayloadMatrix:
+    """Text that must reach TaskWarrior as a single attribute value."""
+
+    @pytest.mark.parametrize('path,field,attribute', [
+        ('/task/abc12345/url', 'url', 'url'),
+        ('/task/abc12345/due', 'due_date', 'due'),
+        ('/task/abc12345/description', 'description', 'description'),
+    ])
+    @pytest.mark.parametrize('value', [
+        'rc.default.project=x', 'x rc.data.location=/some/path', 'x project:y', 'x +tag',
+        "x' project:y", 'x" project:y', '$(touch /some/path)', 'x -- project:y',
+    ])
+    @patch('app.url_uda_defined', return_value=True)
+    @patch('app.subprocess.run')
+    def test_value_stays_one_argument(self, mock_run, _uda, client, path, field, attribute, value):
+        mock_run.return_value = mock_result(stdout='[]')
+        response = client.post(path, json={field: value})
+        assert response.status_code == 200
+        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'modify', f'{attribute}:{value}')

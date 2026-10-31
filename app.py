@@ -3,7 +3,7 @@ import os
 import re
 import subprocess
 from datetime import date, datetime, time, timedelta, timezone
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 from flask import Flask, render_template, request, jsonify, Response, redirect, url_for
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
@@ -40,8 +40,29 @@ _VALID_TASK_ID_PATTERN = re.compile(
 # data directory, while `RC.x=y`, `rc.` and `rc.local` stay plain text.
 _RC_OVERRIDE_PATTERN = re.compile(r'rc(\.[^=:]*)?[=:]')
 
+# ON-119: control characters stop TaskWarrior recognizing an attribute, so
+# `url:x\ny` overwrites the task's description instead of setting the URL
+# (confirmed empirically for \n, \r, \x0b and \x0c on url, due and
+# description). Note text is the one exception: it may hold \n and \t.
+_CONTROL_CHARACTER_PATTERN = re.compile(r'[\x00-\x1f\x7f]')
+_NOTE_CONTROL_CHARACTER_PATTERN = re.compile(r'[\x00-\x08\x0b-\x1f\x7f]')
+_NOTE_FIELDS = {'annotation', 'annotation_text'}
+
 def is_valid_task_id(task_id):
     return _VALID_TASK_ID_PATTERN.fullmatch(str(task_id)) is not None
+
+def has_control_characters(field, value):
+    pattern = _NOTE_CONTROL_CHARACTER_PATTERN if field in _NOTE_FIELDS else _CONTROL_CHARACTER_PATTERN
+    return isinstance(value, str) and pattern.search(value) is not None
+
+def parse_task_export(stdout):
+    """Parse `task export` output.
+
+    TaskWarrior writes some control characters into its JSON unescaped, which
+    strict parsing refuses (ON-119). A task already holding one, however it
+    got there, must not take down every page that lists tasks.
+    """
+    return json.loads(stdout, strict=False)
 
 @app.before_request
 def reject_cross_origin_writes():
@@ -70,13 +91,30 @@ def reject_invalid_task_id():
     if task_id is not None and not is_valid_task_id(task_id):
         return jsonify({'error': 'Invalid task ID', 'status': 'error'}), 400
 
+@app.before_request
+def reject_control_characters():
+    """Refuse control characters in any value bound for TaskWarrior (ON-119).
+
+    Runs on every request so a new route is covered without opting in. URL
+    values are checked decoded a second time because some routes unquote them.
+    """
+    values = [(k, unquote(v)) for k, v in (request.view_args or {}).items() if isinstance(v, str)]
+    values.extend(request.args.items())
+    if request.method not in ('GET', 'HEAD', 'OPTIONS'):
+        body = request.get_json(silent=True)
+        if isinstance(body, dict):
+            values.extend(body.items())
+        values.extend(request.form.items())
+    if any(has_control_characters(field, value) for field, value in values):
+        return jsonify({'error': 'Control characters are not allowed', 'status': 'error'}), 400
+
 # Global overrides applied to every invocation so behavior doesn't ride on the
 # user's interactive .taskrc settings (confirmation prompts, nag/verbose lines
 # polluting parsed output). rc.hooks=off is applied separately, per-call, by
 # run_task_command — see its `hooks` parameter (ON-93).
 RC_OVERRIDES = ['rc.confirmation=off', 'rc.nag=', 'rc.verbose=nothing']
 
-def run_task_command(args, timeout=30, hooks=False):
+def run_task_command(args, timeout=30, hooks=False, stdin_text=None):
     """Run a TaskWarrior command via subprocess with timeout.
 
     hooks=False (default) appends rc.hooks=off, keeping read/query calls
@@ -93,13 +131,15 @@ def run_task_command(args, timeout=30, hooks=False):
     open terminal nobody's typing into, the read blocks until `timeout` below
     kills it. Confirmed empirically: closing stdin makes TaskWarrior default
     the prompt instantly and correctly scope the change to just this one
-    instance, not the whole series.
+    instance, not the whole series. stdin_text carries `task import` data; the
+    prompt then reads end-of-input and defaults the same way (ON-119).
     """
     overrides = RC_OVERRIDES if hooks else RC_OVERRIDES + ['rc.hooks=off']
+    stdin = {'stdin': subprocess.DEVNULL} if stdin_text is None else {'input': stdin_text}
     try:
         result = subprocess.run(
             ['task'] + overrides + args,
-            stdin=subprocess.DEVNULL,
+            **stdin,
             capture_output=True,
             text=True,
             timeout=timeout
@@ -148,7 +188,7 @@ def get_tasks_from_report(report_name='next'):
         if not result.stdout.strip():
             return []
         
-        return json.loads(result.stdout)
+        return parse_task_export(result.stdout)
     except json.JSONDecodeError as e:
         raise Exception(f"Failed to parse TaskWarrior JSON: {str(e)}")
     except Exception as e:
@@ -253,7 +293,7 @@ def get_completed_and_deleted_tasks(window_seconds):
             return []
         if not result.stdout.strip():
             return []
-        return json.loads(result.stdout)
+        return parse_task_export(result.stdout)
     except Exception as e:
         print(f"DEBUG: Error querying completed/deleted tasks: {e}")
         return []
@@ -928,7 +968,7 @@ def get_task_annotations(task_id):
         if result.returncode != 0:
             return jsonify({'error': 'Task not found', 'status': 'error'}), 404
         
-        task_data = json.loads(result.stdout)
+        task_data = parse_task_export(result.stdout)
         if not task_data:
             return jsonify({'error': 'Task not found', 'status': 'error'}), 404
         
@@ -969,22 +1009,43 @@ def add_task_annotation(task_id):
 @app.route('/task/<task_id>/annotations/<annotation_text>', methods=['DELETE'])
 def delete_task_annotation(task_id, annotation_text):
     """Delete specific annotation from a task by text"""
+    return remove_task_annotation(task_id, annotation_text)
+
+
+def remove_task_annotation(task_id, annotation_text):
     try:
-        # TaskWarrior denotate expects the annotation text, not index
-        # URL decode the annotation text
-        from urllib.parse import unquote
-        decoded_text = unquote(annotation_text)
-        
-        print(f"DEBUG: Attempting to delete annotation: '{decoded_text}' from task {task_id}")
-        
-        result = run_task_command([str(task_id), 'denotate', '--', decoded_text], hooks=True)
-        
+        # ON-119: removes the note through `task import` so its text never
+        # reaches TaskWarrior's argument parsing. This also matches the whole
+        # note: `denotate` matches part of one, so deleting "beta" removed
+        # "alpha beta gamma" (confirmed empirically). Hooks fire as for modify.
+        print(f"DEBUG: Attempting to delete annotation: '{annotation_text}' from task {task_id}")
+
+        export_result = run_task_command([str(task_id), 'export'])
+        if export_result.returncode != 0:
+            return jsonify({'error': f'TaskWarrior export failed: {export_result.stderr.strip()}', 'status': 'error'}), 500
+
+        tasks = parse_task_export(export_result.stdout or '[]')
+        notes = tasks[0].get('annotations', []) if tasks else []
+        descriptions = [note.get('description') for note in notes]
+        if annotation_text not in descriptions:
+            return jsonify({'error': 'Note not found', 'status': 'error'}), 404
+
+        del notes[descriptions.index(annotation_text)]
+        expected = [note.get('description') for note in notes]
+        result = run_task_command(['import', '-'], hooks=True, stdin_text=json.dumps(tasks[0], ensure_ascii=False))
+
         if result.returncode != 0:
-            error_msg = f"TaskWarrior denotate failed: {result.stderr.strip()}"
+            error_msg = f"TaskWarrior import failed: {result.stderr.strip()}"
             print(f"DEBUG: {error_msg}")
             print(f"DEBUG: TaskWarrior stdout: {result.stdout.strip()}")
             return jsonify({'error': error_msg, 'status': 'error'}), 500
-        
+
+        # A 200 must mean the note is gone, so check rather than trust the import
+        verify_result = run_task_command([str(task_id), 'export'])
+        remaining = parse_task_export(verify_result.stdout or '[]')
+        if not remaining or [note.get('description') for note in remaining[0].get('annotations', [])] != expected:
+            return jsonify({'error': 'Note was not removed', 'status': 'error'}), 500
+
         print(f"DEBUG: Successfully deleted annotation from task {task_id}")
         return jsonify({'status': 'success', 'message': 'Annotation deleted successfully'})
         
@@ -1002,7 +1063,7 @@ def get_task_due_date(task_id):
         if result.returncode != 0:
             return jsonify({'error': 'Task not found', 'status': 'error'}), 404
         
-        task_data = json.loads(result.stdout)
+        task_data = parse_task_export(result.stdout)
         if not task_data:
             return jsonify({'error': 'Task not found', 'status': 'error'}), 404
         
@@ -1066,7 +1127,7 @@ def postpone_task_due_date(task_id):
         export_result = run_task_command([str(task_id), 'export'])
         if export_result.returncode != 0:
             return jsonify({'error': 'Task not found', 'status': 'error'}), 404
-        task_data = json.loads(export_result.stdout)
+        task_data = parse_task_export(export_result.stdout)
         if not task_data:
             return jsonify({'error': 'Task not found', 'status': 'error'}), 404
 
@@ -1092,7 +1153,7 @@ def get_task_url(task_id):
         result = run_task_command([str(task_id), 'export'])
         if result.returncode != 0:
             return jsonify({'error': 'Task not found', 'status': 'error'}), 404
-        task_data = json.loads(result.stdout)
+        task_data = parse_task_export(result.stdout)
         if not task_data:
             return jsonify({'error': 'Task not found', 'status': 'error'}), 404
         url = task_data[0].get('url', None)
@@ -1170,7 +1231,7 @@ def get_task_tags(task_id):
         result = run_task_command([str(task_id), 'export'])
         if result.returncode != 0:
             return jsonify({'error': 'Task not found', 'status': 'error'}), 404
-        task_data = json.loads(result.stdout)
+        task_data = parse_task_export(result.stdout)
         if not task_data:
             return jsonify({'error': 'Task not found', 'status': 'error'}), 404
         tags = task_data[0].get('tags', [])
@@ -1185,7 +1246,7 @@ def get_task_tags(task_id):
 # '+test-tag' hits the exact same description-overwrite failure as ':'
 # (caught by Porter's manual testing, ON-95 post-ship). Only alphanumeric
 # and underscore are confirmed safe.
-_VALID_TAG_PATTERN = re.compile(r'^[A-Za-z0-9_]+$')
+_VALID_TAG_PATTERN = re.compile(r'^[A-Za-z0-9_]+\Z')
 
 def parse_tag_input(raw_text):
     """Split a tag-add entry into individual clean tag names (ON-95).
@@ -1303,7 +1364,7 @@ def get_tasks_by_tag(tag):
         if not result.stdout.strip():
             return jsonify({'tasks': [], 'status': 'success'})
         
-        tasks_data = json.loads(result.stdout)
+        tasks_data = parse_task_export(result.stdout)
         
         # Format tasks for display in modal
         tasks = []
