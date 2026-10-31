@@ -3,6 +3,7 @@ import os
 import re
 import subprocess
 from datetime import date, datetime, time, timedelta, timezone
+from urllib.parse import urlsplit
 from flask import Flask, render_template, request, jsonify, Response, redirect, url_for
 
 app = Flask(__name__, template_folder='templates', static_folder='static')
@@ -23,6 +24,51 @@ def require_password():
             401,
             {'WWW-Authenticate': 'Basic realm="OneTask"'}
         )
+
+# ON-117: exactly one task — a positive ID, an 8-character UUID prefix, or a
+# full UUID. TaskWarrior reads this argument as a filter, so anything looser
+# widens the selection: confirmed empirically that `1-2` and `1,2` select two
+# tasks, and `status:pending` and `rc.verbose=on` select every task. Uppercase
+# hex is excluded because TaskWarrior matches no task with it.
+_VALID_TASK_ID_PATTERN = re.compile(
+    r'[1-9][0-9]*|[0-9a-f]{8}(-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})?'
+)
+
+# ON-117: the argument forms TaskWarrior treats as config overrides anywhere
+# on the command line: rc.name=value, rc.name:value, rc:file and rc=file.
+# Confirmed empirically that rc.data.location= redirects a write to another
+# data directory, while `RC.x=y`, `rc.` and `rc.local` stay plain text.
+_RC_OVERRIDE_PATTERN = re.compile(r'rc(\.[^=:]*)?[=:]')
+
+def is_valid_task_id(task_id):
+    return _VALID_TASK_ID_PATTERN.fullmatch(str(task_id)) is not None
+
+@app.before_request
+def reject_cross_origin_writes():
+    """Refuse state-changing requests sent by another site's page (ON-117).
+
+    Browsers attach Origin to cross-site POST and DELETE requests, so a page
+    on another site can't omit it. Requests with no Origin (curl, scripts)
+    aren't browser-driven and pass through.
+    """
+    if request.method in ('GET', 'HEAD', 'OPTIONS'):
+        return
+    origin = request.headers.get('Origin')
+    if not origin:
+        return
+    try:
+        origin_host = urlsplit(origin).netloc
+    except ValueError:
+        origin_host = ''
+    if origin_host.lower() != request.host.lower():
+        return jsonify({'error': 'Cross-origin request refused', 'status': 'error'}), 403
+
+@app.before_request
+def reject_invalid_task_id():
+    """Validate the <task_id> URL segment on every /task/<task_id>/ route (ON-117)."""
+    task_id = (request.view_args or {}).get('task_id')
+    if task_id is not None and not is_valid_task_id(task_id):
+        return jsonify({'error': 'Invalid task ID', 'status': 'error'}), 400
 
 # Global overrides applied to every invocation so behavior doesn't ride on the
 # user's interactive .taskrc settings (confirmation prompts, nag/verbose lines
@@ -703,7 +749,10 @@ def complete_task():
         
         if not task_id:
             return jsonify({'error': 'No task ID provided', 'status': 'error'}), 400
-        
+
+        if not is_valid_task_id(task_id):
+            return jsonify({'error': 'Invalid task ID', 'status': 'error'}), 400
+
         print(f"DEBUG: Completing task {task_id}")
         
         # Complete the task via TaskWarrior
@@ -744,7 +793,10 @@ def uncomplete_task():
         
         if not task_id:
             return jsonify({'error': 'No task ID provided', 'status': 'error'}), 400
-        
+
+        if not is_valid_task_id(task_id):
+            return jsonify({'error': 'Invalid task ID', 'status': 'error'}), 400
+
         print(f"DEBUG: Uncompleting task {task_id}")
         
         # TaskWarrior 3.x doesn't have a direct uncomplete command
@@ -791,7 +843,12 @@ def capture_task():
         
         # Add the task via TaskWarrior
         # Split the task text and add it using 'task add'
-        result = run_task_command(['add'] + task_text.split(), hooks=True)
+        tokens = task_text.split()
+        # ON-117: native attributes stay allowed here, but rc overrides don't
+        if any(_RC_OVERRIDE_PATTERN.match(token) for token in tokens):
+            return jsonify({'error': 'TaskWarrior config overrides are not allowed', 'status': 'error'}), 400
+
+        result = run_task_command(['add'] + tokens, hooks=True)
         
         if result.returncode != 0:
             error_msg = f"TaskWarrior add failed: {result.stderr}"
@@ -894,7 +951,9 @@ def add_task_annotation(task_id):
             return jsonify({'error': 'Annotation text required', 'status': 'error'}), 400
         
         # Add annotation via TaskWarrior
-        result = run_task_command([str(task_id), 'annotate', annotation_text], hooks=True)
+        # ON-117: `--` keeps note text literal. Without it, a note reading
+        # `project:x` changes the task's project (confirmed empirically).
+        result = run_task_command([str(task_id), 'annotate', '--', annotation_text], hooks=True)
         
         if result.returncode != 0:
             error_msg = f"TaskWarrior annotate failed: {result.stderr}"
@@ -918,7 +977,7 @@ def delete_task_annotation(task_id, annotation_text):
         
         print(f"DEBUG: Attempting to delete annotation: '{decoded_text}' from task {task_id}")
         
-        result = run_task_command([str(task_id), 'denotate', decoded_text], hooks=True)
+        result = run_task_command([str(task_id), 'denotate', '--', decoded_text], hooks=True)
         
         if result.returncode != 0:
             error_msg = f"TaskWarrior denotate failed: {result.stderr.strip()}"
@@ -1230,6 +1289,9 @@ def delete_task(task_id):
 def get_tasks_by_tag(tag):
     """Get all tasks with a specific tag"""
     try:
+        if not _VALID_TAG_PATTERN.fullmatch(tag):
+            return jsonify({'error': 'Invalid tag', 'status': 'error'}), 400
+
         # Query TaskWarrior for tasks with specific tag
         # Correct syntax: task tag:tagname export
         result = run_task_command([f'tag:{tag}', 'export'])

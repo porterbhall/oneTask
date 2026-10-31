@@ -6,6 +6,7 @@ from unittest.mock import patch, MagicMock
 import pytest
 
 from app import (
+    is_valid_task_id,
     RC_OVERRIDES,
     DurationParseError,
     app,
@@ -1196,7 +1197,7 @@ class TestCompleteTask:
     @patch('app.subprocess.run')
     def test_subprocess_failure_returns_500(self, mock_run, client):
         mock_run.return_value = mock_result(returncode=1, stderr='Task not found')
-        response = client.post('/complete_task', json={'task_id': 'bad-id'})
+        response = client.post('/complete_task', json={'task_id': 'deadbeef'})
         assert response.status_code == 500
 
     @patch('app.subprocess.run')
@@ -1271,7 +1272,7 @@ class TestGetAnnotations:
     @patch('app.subprocess.run')
     def test_task_not_found_returns_404(self, mock_run, client):
         mock_run.return_value = mock_result(stdout='[]')
-        response = client.get('/task/missing/annotations')
+        response = client.get('/task/deadbeef/annotations')
         assert response.status_code == 404
 
     @patch('app.subprocess.run')
@@ -1293,7 +1294,7 @@ class TestAddAnnotation:
         response = client.post('/task/abc12345/annotations', json={'annotation': 'My note'})
         assert response.status_code == 200
         assert response.get_json()['status'] == 'success'
-        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'annotate', 'My note')
+        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'annotate', '--', 'My note')
 
     def test_missing_annotation_returns_400(self, client):
         response = client.post('/task/abc12345/annotations', json={})
@@ -1316,7 +1317,7 @@ class TestDeleteAnnotation:
         mock_run.return_value = mock_result(stdout='Denotated.')
         response = client.delete('/task/abc12345/annotations/my%20note')
         assert response.status_code == 200
-        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'denotate', 'my note')
+        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'denotate', '--', 'my note')
 
     @patch('app.subprocess.run')
     def test_special_characters_decoded_correctly(self, mock_run, client):
@@ -1324,7 +1325,7 @@ class TestDeleteAnnotation:
         mock_run.return_value = mock_result(stdout='Denotated.')
         response = client.delete('/task/abc12345/annotations/note%20with%20%22quotes%22')
         assert response.status_code == 200
-        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'denotate', 'note with "quotes"')
+        assert mock_run.call_args[0][0] == write_task_args('abc12345', 'denotate', '--', 'note with "quotes"')
 
     @patch('app.subprocess.run')
     def test_subprocess_failure_returns_500(self, mock_run, client):
@@ -1356,7 +1357,7 @@ class TestGetDueDate:
     @patch('app.subprocess.run')
     def test_task_not_found_returns_404(self, mock_run, client):
         mock_run.return_value = mock_result(stdout='[]')
-        response = client.get('/task/missing/due')
+        response = client.get('/task/deadbeef/due')
         assert response.status_code == 404
 
 
@@ -1434,13 +1435,13 @@ class TestPostponeTask:
     @patch('app.subprocess.run')
     def test_task_not_found_returns_404(self, mock_run, client):
         mock_run.return_value = mock_result(stdout='[]')
-        response = client.post('/task/bad-id/postpone')
+        response = client.post('/task/deadbeef/postpone')
         assert response.status_code == 404
 
     @patch('app.subprocess.run')
     def test_export_failure_returns_404(self, mock_run, client):
         mock_run.return_value = mock_result(returncode=1, stderr='Task does not exist')
-        response = client.post('/task/bad-id/postpone')
+        response = client.post('/task/deadbeef/postpone')
         assert response.status_code == 404
 
     @patch('app.subprocess.run')
@@ -1498,7 +1499,7 @@ class TestGetTaskUrl:
     @patch('app.subprocess.run')
     def test_task_not_found_returns_404(self, mock_run, client):
         mock_run.return_value = mock_result(stdout='[]')
-        response = client.get('/task/missing/url')
+        response = client.get('/task/deadbeef/url')
         assert response.status_code == 404
 
     @patch('app.subprocess.run')
@@ -1662,7 +1663,7 @@ class TestGetTaskTags:
     @patch('app.subprocess.run')
     def test_task_not_found_returns_404(self, mock_run, client):
         mock_run.return_value = mock_result(returncode=1, stderr='not found')
-        response = client.get('/task/bad-id/tags')
+        response = client.get('/task/deadbeef/tags')
         assert response.status_code == 404
 
 
@@ -1794,7 +1795,7 @@ class TestDeleteTask:
     @patch('app.subprocess.run')
     def test_subprocess_failure_returns_500(self, mock_run, client):
         mock_run.return_value = mock_result(returncode=1, stderr='Task does not exist')
-        response = client.post('/task/bad-id/delete')
+        response = client.post('/task/deadbeef/delete')
         assert response.status_code == 500
         assert response.get_json()['status'] == 'error'
 
@@ -1960,3 +1961,100 @@ class TestRemoveTaskPriority:
         mock_run.return_value = mock_result(returncode=1, stderr='error')
         response = client.delete('/task/abc12345/priority')
         assert response.status_code == 500
+
+
+# ---------------------------------------------------------------------------
+# Input hardening (ON-117)
+# ---------------------------------------------------------------------------
+
+FULL_UUID = '7e6d43ec-ebb5-4cb9-a477-4e12588fed48'
+
+
+class TestTaskIdValidation:
+    @pytest.mark.parametrize('task_id', ['1', '42', 'abc12345', FULL_UUID])
+    def test_accepts_single_task_selectors(self, task_id):
+        assert is_valid_task_id(task_id)
+
+    @pytest.mark.parametrize('task_id', [
+        '0', '1-2', '1,2', 'status:pending', '+tag', 'rc.verbose=on', 'ABC12345',
+        'abc1234', 'abc123456', FULL_UUID + 'a', 'abc12345\n', '1 2', '',
+    ])
+    def test_rejects_anything_else(self, task_id):
+        assert not is_valid_task_id(task_id)
+
+    @pytest.mark.parametrize('method,path', [
+        ('get', '/task/1-2/annotations'),
+        ('post', '/task/1,2/delete'),
+        ('post', '/task/status:pending/postpone'),
+        ('delete', '/task/rc.verbose=on/due'),
+    ])
+    @patch('app.subprocess.run')
+    def test_url_segment_rejected_before_taskwarrior_runs(self, mock_run, client, method, path):
+        response = getattr(client, method)(path)
+        assert response.status_code == 400
+        mock_run.assert_not_called()
+
+    @pytest.mark.parametrize('route', ['/complete_task', '/uncomplete_task'])
+    @patch('app.subprocess.run')
+    def test_json_body_rejected_before_taskwarrior_runs(self, mock_run, client, route):
+        response = client.post(route, json={'task_id': 'status:pending'})
+        assert response.status_code == 400
+        mock_run.assert_not_called()
+
+
+class TestCaptureRcOverrides:
+    @pytest.mark.parametrize('text', [
+        'rc.default.project=x word', 'word rc.default.project:x', 'word rc:/some/file',
+        'word rc=/some/file', 'word rc.data.location=/some/path',
+    ])
+    @patch('app.subprocess.run')
+    def test_override_tokens_rejected(self, mock_run, client, text):
+        response = client.post('/capture', json={'task': text})
+        assert response.status_code == 400
+        mock_run.assert_not_called()
+
+    @pytest.mark.parametrize('text', [
+        'Fix rc.local boot', 'word rc.', 'word RC.x=y', 'Review priority:H project:web +tag',
+    ])
+    @patch('app.subprocess.run')
+    def test_plain_text_and_native_syntax_pass(self, mock_run, client, text):
+        mock_run.return_value = mock_result(stdout='Created task 5.')
+        response = client.post('/capture', json={'task': text})
+        assert response.status_code == 200
+        assert mock_run.call_args[0][0] == write_task_args('add', *text.split())
+
+
+class TestTasksByTagValidation:
+    @pytest.mark.parametrize('tag', ['a:b', 'a-b', 'a%0A'])
+    @patch('app.subprocess.run')
+    def test_invalid_tag_rejected_before_taskwarrior_runs(self, mock_run, client, tag):
+        response = client.get(f'/tasks/by-tag/{tag}')
+        assert response.status_code == 400
+        mock_run.assert_not_called()
+
+
+class TestCrossOriginWrites:
+    @pytest.mark.parametrize('origin', ['http://evil.example', 'null', 'http://localhost:9999', 'http://['])
+    @patch('app.subprocess.run')
+    def test_foreign_origin_refused(self, mock_run, client, origin):
+        response = client.post('/task/abc12345/delete', headers={'Origin': origin})
+        assert response.status_code == 403
+        mock_run.assert_not_called()
+
+    @patch('app.subprocess.run')
+    def test_same_origin_allowed(self, mock_run, client):
+        mock_run.return_value = mock_result()
+        response = client.post('/task/abc12345/delete', headers={'Origin': 'http://LOCALHOST'})
+        assert response.status_code == 200
+
+    @patch('app.subprocess.run')
+    def test_no_origin_allowed(self, mock_run, client):
+        mock_run.return_value = mock_result()
+        response = client.post('/task/abc12345/delete')
+        assert response.status_code == 200
+
+    @patch('app.subprocess.run')
+    def test_foreign_origin_read_unaffected(self, mock_run, client):
+        mock_run.return_value = mock_result(stdout='[]')
+        response = client.get('/tasks/by-tag/work', headers={'Origin': 'http://evil.example'})
+        assert response.status_code == 200

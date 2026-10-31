@@ -277,6 +277,7 @@ Adds a new task to TaskWarrior using native TaskWarrior syntax.
 **Request Body:**
 - `task`: Task description with optional TaskWarrior attributes
   - Examples: `"Fix bug in login system"`, `"Review PR priority:H project:web"`
+  - TaskWarrior config overrides (`rc.name=value`, `rc:file`) are rejected with a 400
 
 **Response:**
 ```json
@@ -294,6 +295,8 @@ Adds an annotation to a task. Body: `{"annotation": "text"}`.
 
 ### DELETE /task/\<id\>/annotations/\<text\>
 Removes a specific annotation by its URL-encoded text.
+
+Every `<id>` above and below must be a task's numeric ID, 8-character UUID prefix, or full UUID, and selects exactly one task; anything else returns a 400.
 
 ### GET /task/\<id\>/due
 Returns the due date for a task.
@@ -362,6 +365,7 @@ OneTask is a single-user personal tool, not a hardened multi-user web applicatio
 - **The password is basic gatekeeping, not strong authentication.** `ONETASK_PASSWORD` is a single shared password meant to keep casual visitors on your own network out. It is not a substitute for real auth, rate limiting, or account management.
 - **LAN access requires a password.** OneTask will not expose itself to other devices without one.
 - **Do not put OneTask directly on the public internet.** Your task list often contains sensitive personal and work detail, and the API lets a visitor *modify* tasks, not just read them. If you need remote access, place it behind a VPN, or an authenticated reverse proxy with TLS — never expose the raw port.
+- **Cross-origin writes are refused.** A request that changes tasks and carries another site's `Origin` header gets a 403, so a page you visit can't act on your tasks. A reverse proxy must pass the original `Host` header through, or OneTask will refuse your own requests.
 - **As-is, no warranty.** OneTask is provided under AGPL-3.0 with no warranty of any kind (see [License](#license)). You run it at your own risk.
 
 The project also applies routine hygiene: Dependabot dependency alerts, input validation on task operations, secure error pages without information disclosure, and no debug mode in production.
