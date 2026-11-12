@@ -391,7 +391,7 @@
         exitTitleEditMode();
         var taskNameElement = document.querySelector('.task-name');
         var completeButtonElement = document.querySelector('.completeButton');
-        taskNameElement.innerHTML = formatted_tasks[currentTaskIndex];
+        taskNameElement.textContent = formatted_tasks[currentTaskIndex];
 
         // Check if the task is completed and apply the completed class
         if (isTaskCompleted(currentTaskIndex)) {
@@ -1386,7 +1386,7 @@ function updateCountdown() {
             if (data.status === 'success') {
                 task_names[currentTaskIndex] = newDescription;
                 formatted_tasks[currentTaskIndex] = formatTaskTitle(task_priorities[currentTaskIndex], newDescription);
-                document.querySelector('.task-name').innerHTML = formatted_tasks[currentTaskIndex];
+                document.querySelector('.task-name').textContent = formatted_tasks[currentTaskIndex];
                 updateDetailsTitleDisplay();
                 exitTitleEditMode();
             } else {
@@ -1422,7 +1422,7 @@ function updateCountdown() {
             if (data.status === 'success') {
                 task_priorities[currentTaskIndex] = newPriority;
                 formatted_tasks[currentTaskIndex] = formatTaskTitle(newPriority, task_names[currentTaskIndex]);
-                document.querySelector('.task-name').innerHTML = formatted_tasks[currentTaskIndex];
+                document.querySelector('.task-name').textContent = formatted_tasks[currentTaskIndex];
                 updatePrioritySegmented();
             } else {
                 alert('Error saving priority: ' + data.error);
@@ -1445,7 +1445,7 @@ function updateCountdown() {
             if (data.status === 'success') {
                 task_priorities[currentTaskIndex] = '';
                 formatted_tasks[currentTaskIndex] = formatTaskTitle('', task_names[currentTaskIndex]);
-                document.querySelector('.task-name').innerHTML = formatted_tasks[currentTaskIndex];
+                document.querySelector('.task-name').textContent = formatted_tasks[currentTaskIndex];
                 updatePrioritySegmented();
             } else {
                 alert('Error clearing priority: ' + data.error);
