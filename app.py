@@ -1,3 +1,4 @@
+import hmac
 import json
 import os
 import re
@@ -18,7 +19,9 @@ def require_password():
     if not expected:
         return
     auth = request.authorization
-    if not auth or auth.password != expected:
+    # compare_digest so the time taken doesn't reveal how much of a guess matched
+    if not auth or auth.password is None or not hmac.compare_digest(
+            auth.password.encode('utf-8'), expected.encode('utf-8')):
         return Response(
             'Authentication required',
             401,
