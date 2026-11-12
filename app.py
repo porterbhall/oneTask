@@ -500,13 +500,19 @@ def convert_taskwarrior_estimate_to_seconds(estimate):
     return total_seconds
 
 def format_due_date_display(due_date):
-    """Format a TaskWarrior due date (ISO8601 basic, e.g. 20260705T070000Z) for display"""
+    """Format a TaskWarrior due date (ISO8601 basic, e.g. 20260705T070000Z) for display.
+
+    The stored value is UTC, so it's converted to the server's local date
+    first, as compute_postponed_due() does. Formatting the UTC date showed
+    anything due in the local evening as the next day on /list, while the
+    timer view (toLocaleDateString in the browser) showed the right day."""
     if not due_date:
         return None
     try:
-        return datetime.strptime(due_date, '%Y%m%dT%H%M%SZ').strftime('%b %d, %Y')
+        utc_dt = datetime.strptime(due_date, '%Y%m%dT%H%M%SZ').replace(tzinfo=timezone.utc)
     except ValueError:
         return due_date
+    return utc_dt.astimezone().strftime('%b %d, %Y')
 
 def compute_postponed_due(current_due, today=None):
     """Compute the new `due:` value for a Postpone/snooze press (ON-94):
