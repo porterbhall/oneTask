@@ -48,6 +48,12 @@ _CONTROL_CHARACTER_PATTERN = re.compile(r'[\x00-\x1f\x7f]')
 _NOTE_CONTROL_CHARACTER_PATTERN = re.compile(r'[\x00-\x08\x0b-\x1f\x7f]')
 _NOTE_FIELDS = {'annotation', 'annotation_text'}
 
+# Link schemes that run code when opened. The page refuses to open them too;
+# this keeps them from being stored through oneTask in the first place. App
+# links such as obsidian:// stay allowed. Control characters are refused
+# before this runs, and browsers strip leading spaces, so allow for those.
+_BLOCKED_URL_SCHEME_PATTERN = re.compile(r'\s*(javascript|data|vbscript)\s*:', re.IGNORECASE)
+
 def is_valid_task_id(task_id):
     return _VALID_TASK_ID_PATTERN.fullmatch(str(task_id)) is not None
 
@@ -1180,6 +1186,8 @@ def set_task_url(task_id):
         url = request.json.get('url')
         if not url:
             return jsonify({'error': 'URL required', 'status': 'error'}), 400
+        if isinstance(url, str) and _BLOCKED_URL_SCHEME_PATTERN.match(url):
+            return jsonify({'error': 'URL scheme not allowed', 'status': 'error'}), 400
         # ON-68/A4: on stock TaskWarrior `url` isn't a known attribute, so
         # `modify url:...` would be rejected — check first rather than let
         # that raw TaskWarrior error surface to the user.

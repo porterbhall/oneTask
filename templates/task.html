@@ -218,6 +218,26 @@
     // already succeeded.
     var urlSaveInFlight = false;
 
+    // Schemes that run code when opened. App links such as obsidian:// and
+    // joplin:// stay allowed; these never do.
+    var BLOCKED_LINK_SCHEMES = ['javascript:', 'data:', 'vbscript:'];
+
+    // A task URL ready to open, or null when it can't be opened safely.
+    // Domain-like URLs get http:// added; the browser's own URL parser then
+    // decides the scheme, so case and whitespace tricks can't hide one.
+    function safeTaskLink(url) {
+        if (!url.startsWith('http://') && !url.startsWith('https://') && !url.includes('://')) {
+            url = 'http://' + url; // Add http protocol only for domain-like URLs
+        }
+        var protocol;
+        try {
+            protocol = new URL(url).protocol.toLowerCase();
+        } catch (e) {
+            return null;
+        }
+        return BLOCKED_LINK_SCHEMES.includes(protocol) ? null : url;
+    }
+
     // Function to update the link based on task URL
     function updateLink() {
         var url = taskUrl[currentTaskIndex];
@@ -225,16 +245,16 @@
         console.log('currentTaskIndex: ', currentTaskIndex);
         var linkElement = document.querySelector('.url a');
 
-        // Check if task URL is "none" or empty
-        if (!url || url.toLowerCase() === 'none') {
+        // No link when the task URL is "none" or empty, or can't be opened safely
+        if (url && url.toLowerCase() !== 'none') {
+            url = safeTaskLink(url);
+        } else {
+            url = null;
+        }
+        if (!url) {
             linkElement.href = '#';
             linkElement.innerText = "";
         } else {
-            // Check if task URL lacks http or https protocol
-            // But preserve app links (custom protocols like joplin://, obsidian://, etc.)
-            if (!url.startsWith('http://') && !url.startsWith('https://') && !url.includes('://')) {
-                url = 'http://' + url; // Add http protocol only for domain-like URLs
-            }
             linkElement.href = url;
             linkElement.innerText = "Link"; // Set inner text to the URL
 
@@ -559,11 +579,12 @@ function updateCountdown() {
         }
         
         // Apply the same processing as updateLink function
-        var processedUrl = url;
-        if (!url.startsWith('http://') && !url.startsWith('https://') && !url.includes('://')) {
-            processedUrl = 'http://' + url; // Add http protocol only for domain-like URLs
+        var processedUrl = safeTaskLink(url);
+        if (!processedUrl) {
+            console.log('Task link uses a blocked scheme; not opening it');
+            return;
         }
-        
+
         // Open the link in a new window/tab
         window.open(processedUrl, '_blank');
     }
