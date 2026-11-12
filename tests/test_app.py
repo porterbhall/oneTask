@@ -1,6 +1,7 @@
 import json
 import re
 import subprocess
+import time as time_module
 from datetime import date, datetime, timezone
 from unittest.mock import patch, MagicMock
 from urllib.parse import quote
@@ -521,6 +522,18 @@ class TestSortingKey:
 # Unit tests: format_due_date_display / format_estimate_display
 # ---------------------------------------------------------------------------
 
+@pytest.fixture
+def pacific_time(monkeypatch):
+    """Run a test with the process time zone set to America/Los_Angeles."""
+    if not hasattr(time_module, 'tzset'):
+        pytest.skip('time.tzset is not available on this platform')
+    monkeypatch.setenv('TZ', 'America/Los_Angeles')
+    time_module.tzset()
+    yield
+    monkeypatch.undo()
+    time_module.tzset()
+
+
 class TestFormatDueDateDisplay:
     def test_none_returns_none(self):
         assert format_due_date_display(None) is None
@@ -529,7 +542,16 @@ class TestFormatDueDateDisplay:
         assert format_due_date_display('') is None
 
     def test_valid_taskwarrior_date(self):
-        assert format_due_date_display('20260705T070000Z') == 'Jul 05, 2026'
+        assert format_due_date_display(_utc_due_for_local(datetime(2026, 7, 5, 7, 0))) == 'Jul 05, 2026'
+
+    def test_local_evening_shows_local_day(self):
+        # Due at 11 PM local is the next day in UTC for any zone west of
+        # UTC; the display must still show the local day.
+        assert format_due_date_display(_utc_due_for_local(datetime(2026, 7, 5, 23, 0))) == 'Jul 05, 2026'
+
+    def test_pacific_time_evening(self, pacific_time):
+        # 5 PM PST on Nov 13 is 01:00 UTC on Nov 14.
+        assert format_due_date_display('20261114T010000Z') == 'Nov 13, 2026'
 
     def test_unparseable_date_returned_as_is(self):
         assert format_due_date_display('not-a-date') == 'not-a-date'
@@ -609,7 +631,11 @@ class TestFormatEndDateDisplay:
         assert format_end_date_display(None) is None
 
     def test_valid_taskwarrior_date(self):
-        assert format_end_date_display('20260827T140000Z') == 'Aug 27, 2026'
+        assert format_end_date_display(_utc_due_for_local(datetime(2026, 8, 27, 14, 0))) == 'Aug 27, 2026'
+
+    def test_pacific_time_evening(self, pacific_time):
+        # Completed 9 PM PDT on Aug 27 is 04:00 UTC on Aug 28.
+        assert format_end_date_display('20260828T040000Z') == 'Aug 27, 2026'
 
 
 class TestFormatEstimateDisplay:
